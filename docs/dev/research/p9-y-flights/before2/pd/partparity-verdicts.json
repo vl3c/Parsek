@@ -1,0 +1,9106 @@
+{
+ "burst": {
+  "cases": 117,
+  "families": {
+   "dust": {
+    "error": 0,
+    "fail": 117,
+    "pass": 0,
+    "warn": 0
+   }
+  },
+  "flags": {},
+  "kinds": {
+   "burst": 0,
+   "dust": 117
+  },
+  "thresholds": {
+   "burstCentroidOffsetFail": 0.3,
+   "burstCentroidOffsetWarn": 0.15,
+   "burstDurationFailFraction": 0.4,
+   "burstDurationWarnFraction": 0.2,
+   "burstOnsetFailBins": 1,
+   "burstPeakAreaFailMax": 1.6,
+   "burstPeakAreaFailMin": 0.6,
+   "burstPeakAreaWarnMax": 1.25,
+   "burstPeakAreaWarnMin": 0.8,
+   "burstPeakTimeFailBins": 2,
+   "burstPeakTimeWarnBins": 1,
+   "burstRadiusFailMax": 1.4,
+   "burstRadiusFailMin": 0.7,
+   "burstRadiusPercentile": 0.95,
+   "burstRadiusWarnMax": 1.18,
+   "burstRadiusWarnMin": 0.85,
+   "burstSchedulePositionToleranceM": 1.0,
+   "burstSchedulePowerEpsilon": 0.0001
+  }
+ },
+ "cases": [
+  {
+   "caseId": "clydesdale--default--dust-high--ground--4651d9a1",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.06347089260816574,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Clydesdale",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "clydesdale--default--dust-low--ground--0d80cbfd",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.3073575794696808,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Clydesdale",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "clydesdale--default--dust-water--ground--dcb89b9e",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.18758274614810944,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Clydesdale",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "jetengine--default--dust-high--ground--43000e16",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.03412164538167417,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "JetEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "jetengine--default--dust-low--ground--98eecdec",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.31239923276007175,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "JetEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "jetengine--default--dust-water--ground--f51dcc5f",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.1661791242659092,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "JetEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengineke-1--full--dust-high--ground--ddc0b9b3",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.07542666047811508,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineKE-1",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengineke-1--full--dust-low--ground--85b2b4ff",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.598907470703125,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineKE-1",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengineke-1--full--dust-water--ground--a83aca60",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.3424495756626129,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineKE-1",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginelv-t91--cap--dust-high--ground--d6e4ef41",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.03871048614382744,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineLV-T91",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginelv-t91--cap--dust-low--ground--0aae421d",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2603836953639984,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineLV-T91",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginelv-t91--cap--dust-water--ground--fad394be",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.152673602104187,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineLV-T91",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-i2--shroud--dust-high--ground--fe419614",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.06196388602256775,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-I2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-i2--shroud--dust-low--ground--d7021d2a",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.41303086280822754,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-I2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-i2--shroud--dust-water--ground--ae861835",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.23140624165534973,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-I2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-j10--shroud--dust-high-m3--ground--b72ff35b",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.017077958211302757,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-J10",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high-m3",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-j10--shroud--dust-high-m6--ground--c7efc346",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.014702586457133293,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-J10",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high-m6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-j10--shroud--dust-low-m3--ground--6d09fd01",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.08144626021385193,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-J10",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low-m3",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-j10--shroud--dust-low-m6--ground--c365a204",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.08990674465894699,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-J10",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low-m6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-j10--shroud--dust-water-m3--ground--0b0d4268",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05162142217159271,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-J10",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water-m3",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginere-j10--shroud--dust-water-m6--ground--c37cac8d",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05347035080194473,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRE-J10",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water-m6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginerk-7--bare--dust-high--ground--38444ffd",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.061991799622774124,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRK-7",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginerk-7--bare--dust-low--ground--25e6e0f1",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2917107045650482,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRK-7",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginerk-7--bare--dust-water--ground--1c144fa2",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.1993522197008133,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "LiquidEngineRK-7",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "massivebooster--white--dust-high--ground--c44ccc99",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.08340656757354736,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "MassiveBooster",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "massivebooster--white--dust-low--ground--c56f4af5",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.5692254304885864,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "MassiveBooster",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "massivebooster--white--dust-water--ground--88c17dd6",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.31936028599739075,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "MassiveBooster",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "mite--default--dust-high--ground--adbdab24",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.07096520066261292,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Mite",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "mite--default--dust-low--ground--543366ba",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.4530442953109741,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Mite",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "mite--default--dust-water--ground--9ec7d305",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.26356369256973267,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Mite",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "pollux--default--dust-high--ground--508e1747",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.06341615319252014,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Pollux",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "pollux--default--dust-low--ground--c0a0b38b",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.43609392642974854,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Pollux",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "pollux--default--dust-water--ground--d98e741c",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.26597899198532104,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Pollux",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "rapier--default--dust-high-m6--ground--e9870440",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.04142146068625152,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "RAPIER",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high-m6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "rapier--default--dust-high-m7--ground--6145b659",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.059175848960876465,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "RAPIER",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high-m7",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "rapier--default--dust-low-m6--ground--d7499ca6",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.27103798277676105,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "RAPIER",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low-m6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "rapier--default--dust-low-m7--ground--4b259c57",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.392048716545105,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "RAPIER",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low-m7",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "rapier--default--dust-water-m6--ground--c59bda47",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.16444866638630629,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "RAPIER",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water-m6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "rapier--default--dust-water-m7--ground--4151d856",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.23895704746246338,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "RAPIER",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water-m7",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "ssme--default--dust-high--ground--dd10e347",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.09835497289896011,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "SSME",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "ssme--default--dust-low--ground--e202378b",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.5793817639350891,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "SSME",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "ssme--default--dust-water--ground--0b75981c",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.34488844871520996,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "SSME",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "shrimp--default--dust-high--ground--0a6cd3b2",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.06304201483726501,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Shrimp",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "shrimp--default--dust-low--ground--c65edb40",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.43351519107818604,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Shrimp",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "shrimp--default--dust-water--ground--5b417023",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2643958628177643,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Shrimp",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size2lfb--default--dust-high--ground--7497c6b2",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.0861322209239006,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size2LFB",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size2lfb--default--dust-low--ground--8aebfc40",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.4672962427139282,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size2LFB",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size2lfb--default--dust-water--ground--7cddf923",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.29781574010849,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size2LFB",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size2lfb.v2--default--dust-high--ground--f23d6ca8",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.0909118801355362,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size2LFB.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size2lfb.v2--default--dust-low--ground--18e3e3d6",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.5013498067855835,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size2LFB.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size2lfb.v2--default--dust-water--ground--f3078961",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.29781574010849,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size2LFB.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size3advancedengine--default--dust-high--ground--3638ab07",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05280362814664841,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size3AdvancedEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size3advancedengine--default--dust-low--ground--20fe484b",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.393031507730484,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size3AdvancedEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size3advancedengine--default--dust-water--ground--17c0eedc",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.21765995025634766,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size3AdvancedEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size3enginecluster--default--dust-high--ground--68ecb069",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.14306962490081787,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size3EngineCluster",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size3enginecluster--default--dust-low--ground--9488b885",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.6638011336326599,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size3EngineCluster",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "size3enginecluster--default--dust-water--ground--c4b70126",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.4354586601257324,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size3EngineCluster",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "thoroughbred--default--dust-high--ground--1eea660e",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.07717128098011017,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall"
+    ],
+    "structure": {
+     "extra": [],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Thoroughbred",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "thoroughbred--default--dust-low--ground--54df4684",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.418609619140625,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Thoroughbred",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "thoroughbred--default--dust-water--ground--e161e357",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2666880488395691,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Thoroughbred",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "enginelargeskipper.v2--shroud--dust-high--ground--d17a6730",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.06749922782182693,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "engineLargeSkipper.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "enginelargeskipper.v2--shroud--dust-low--ground--14608bbe",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.4499553143978119,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "engineLargeSkipper.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "enginelargeskipper.v2--shroud--dust-water--ground--ebbb0c49",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.25212758779525757,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "engineLargeSkipper.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine--default--dust-high--ground--6b23dda1",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.06412479281425476,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine--default--dust-low--ground--91b937fd",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.316127747297287,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine--default--dust-water--ground--d354e79e",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.1987077295780182,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine.v2--shroud--dust-high--ground--dcb6e0b9",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05369690805673599,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine.v2--shroud--dust-low--ground--4bfb8695",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2960655093193054,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine.v2--shroud--dust-water--ground--ddc2de76",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.19871129095554352,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2--default--dust-high--ground--cb39ca01",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05107893794775009,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2--default--dust-low--ground--d0caaedd",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.24039766192436218,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2--default--dust-water--ground--efaa177e",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.1639854460954666,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2-2.v2--doublebell--dust-high--ground--4c37ec13",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.028187496587634087,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2-2.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2-2.v2--doublebell--dust-low--ground--85d26cdf",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.11273577809333801,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2-2.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2-2.v2--doublebell--dust-water--ground--dbf79340",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.07194752246141434,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2-2.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2.v2--shroud--dust-high--ground--8c795959",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.04553839564323425,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2.v2--shroud--dust-low--ground--b99c76b5",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2776792645454407,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine2.v2--shroud--dust-water--ground--26546b96",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.16398991644382477,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine2.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine3.v2--shroud--dust-high--ground--c7527c2c",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.007187127135694027,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine3.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine3.v2--shroud--dust-low--ground--9e783362",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.049572769552469254,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine3.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidengine3.v2--shroud--dust-water--ground--05b0f8ed",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.031119974330067635,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngine3.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginemainsail.v2--full--dust-high--ground--4d462ed1",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.08484884351491928,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngineMainsail.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginemainsail.v2--full--dust-low--ground--eaeac7ad",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.4603177607059479,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngineMainsail.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "liquidenginemainsail.v2--full--dust-water--ground--2983950e",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.293347030878067,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "liquidEngineMainsail.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "minijetengine--default--dust-high--ground--84529d1d",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.058228710666298866,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "miniJetEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "minijetengine--default--dust-low--ground--53479991",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.3068249225616455,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "miniJetEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "minijetengine--default--dust-water--ground--d79bf542",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.1712197521701455,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "miniJetEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "nuclearengine--default--dust-high--ground--5413f79d",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.007514284923672676,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "nuclearEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "nuclearengine--default--dust-low--ground--1f636511",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.0979297086596489,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "nuclearEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "nuclearengine--default--dust-water--ground--64fd6cc2",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.0454428605735302,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "nuclearEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "radialliquidengine1-2--default--dust-high--ground--5df40528",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.04296789690852165,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "radialLiquidEngine1-2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "radialliquidengine1-2--default--dust-low--ground--3ef43956",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.29707005620002747,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "radialLiquidEngine1-2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "radialliquidengine1-2--default--dust-water--ground--03799ae1",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.18921537697315216,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "radialLiquidEngine1-2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster.sm.v2--basic--dust-high--ground--11c250a5",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05395873263478279,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster.sm.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster.sm.v2--basic--dust-low--ground--a7192559",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.35315316915512085,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster.sm.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster.sm.v2--basic--dust-water--ground--ea17eeca",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.21394185721874237,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster.sm.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster.v2--basic--dust-high--ground--0dd3708f",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.07966878265142441,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster.v2--basic--dust-low--ground--8b217393",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.4393056631088257,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster.v2--basic--dust-water--ground--209178e4",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.260832816362381,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster.v2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster1-1--default--dust-high--ground--7578f60f",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05591478571295738,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster1-1",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster1-1--default--dust-low--ground--1dcf4813",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.43855300545692444,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster1-1",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "solidbooster1-1--default--dust-water--ground--ca22a164",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.24016815423965454,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "solidBooster1-1",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "toroidalaerospike--default--dust-high--ground--6405c9fc",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05285060033202171,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "toroidalAerospike",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "toroidalaerospike--default--dust-low--ground--dbdbb3f2",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.3404618799686432,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "toroidalAerospike",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "toroidalaerospike--default--dust-water--ground--c1d13f3d",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2147868126630783,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "toroidalAerospike",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbofanengine--default--dust-high--ground--0b797eb6",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.04971976741217077,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboFanEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbofanengine--default--dust-low--ground--04f9e90c",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.29945812188088894,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboFanEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbofanengine--default--dust-water--ground--c22b057f",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.19794914964586496,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboFanEngine",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbofansize2--default--dust-high--ground--197c2017",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.04735858412459493,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboFanSize2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbofansize2--default--dust-low--ground--808f815b",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.2884385120123625,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboFanSize2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbofansize2--default--dust-water--ground--0bb5172c",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.16253255121409893,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboFanSize2",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbojet--default--dust-high-m10--ground--0d18a877",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.042440168326720595,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboJet",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high-m10",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbojet--default--dust-high-m11--ground--4085fec6",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.05863712076097727,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboJet",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-high-m11",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbojet--default--dust-low-m10--ground--4ad2e1fd",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.35281191393733025,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboJet",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low-m10",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbojet--default--dust-low-m11--ground--675bbb74",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.31370778754353523,
+     "surface": "terrain"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboJet",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-low-m11",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbojet--default--dust-water-m10--ground--1a8e8a76",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.1988073904067278,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboJet",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water-m10",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "caseId": "turbojet--default--dust-water-m11--ground--594b3367",
+   "context": "ground",
+   "dust": {
+    "entries": [
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-side"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-top"
+     },
+     {
+      "layer": "dust",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "dust-far"
+     }
+    ],
+    "family": "dust",
+    "flags": [],
+    "raycast": {
+     "hits": 16,
+     "misses": 0,
+     "scaledFx": 0.20664323028177023,
+     "surface": "water"
+    },
+    "reasons": [
+     "missing-dust:ring",
+     "missing-dust:smokeLarge",
+     "missing-dust:smokeSmall",
+     "extra-dust:ParsekLaunchDust"
+    ],
+    "structure": {
+     "extra": [
+      "ParsekLaunchDust"
+     ],
+     "missing": [
+      "ring",
+      "smokeLarge",
+      "smokeSmall"
+     ]
+    },
+    "unsettled": [],
+    "verdict": "fail"
+   },
+   "family": "dust",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "turboJet",
+   "reasons": [
+    "missing-dust:ring",
+    "missing-dust:smokeLarge",
+    "missing-dust:smokeSmall",
+    "extra-dust:ParsekLaunchDust"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "dust-water-m11",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  }
+ ],
+ "completeness": {
+  "complete": 117,
+  "ok": true,
+  "planned": 117,
+  "problems": [],
+  "setupFaults": 0
+ },
+ "controls": {
+  "ok": false,
+  "outcomes": {},
+  "problems": [
+   "ctl-dust-real-vs-real:absent",
+   "ctl-dust-off:absent",
+   "ctl-dust-above-reach:absent",
+   "progress.controls=off"
+  ],
+  "state": "off"
+ },
+ "counts": {
+  "cases": 117,
+  "error": 0,
+  "fail": 117,
+  "pass": 0,
+  "warn": 0
+ },
+ "gate": {
+  "accepted": [],
+  "baselineRuns": [],
+  "counts": {
+   "drift": 0,
+   "gone": 0,
+   "no-baseline": 1,
+   "unaccepted-fail": 0
+  },
+  "label": "pd",
+  "notes": [],
+  "ok": false,
+  "profile": "stock-minimal",
+  "reds": [
+   {
+    "caseId": null,
+    "detail": "no baseline section for label pd in baseline-stock-minimal.json",
+    "kind": "no-baseline"
+   }
+  ],
+  "tolerances": {
+   "blobRel": 0.5,
+   "colorAbsPx": 192,
+   "fxAbs": 0.5,
+   "fxRel": 0.5,
+   "iouAbs": 0.01,
+   "shapeAbsPx": 48
+  },
+  "unmeasured": []
+ },
+ "gating": false,
+ "invalidSubkind": "parity-controls",
+ "label": "pd",
+ "problems": [
+  "controls: ctl-dust-real-vs-real:absent, ctl-dust-off:absent, ctl-dust-above-reach:absent, progress.controls=off"
+ ],
+ "recompute": {
+  "cases": [
+   "nuclearengine--default--dust-low--ground--1f636511.dust",
+   "shrimp--default--dust-water--ground--5b417023.dust",
+   "solidbooster.v2--basic--dust-high--ground--0dd3708f.dust"
+  ],
+  "mismatches": []
+ },
+ "runId": "2026-11-28_1305_P9-burst-dust",
+ "schema": "parsek-part-parity-verdicts/1",
+ "stateFlags": {},
+ "statePress": {
+  "families": {
+   "dust": {
+    "cases": 117,
+    "pressFailed": 0
+   }
+  },
+  "ok": true,
+  "problems": []
+ },
+ "status": "INVALID",
+ "thresholds": {
+  "colorBlobFailPx": 256,
+  "recomputeSampleFraction": 0.02,
+  "shapeBlobFailPct": 0.2,
+  "shapeBlobFailPx": 64,
+  "warnFraction": 0.25
+ },
+ "worst": [
+  "clydesdale--default--dust-high--ground--4651d9a1",
+  "clydesdale--default--dust-low--ground--0d80cbfd",
+  "clydesdale--default--dust-water--ground--dcb89b9e",
+  "enginelargeskipper.v2--shroud--dust-high--ground--d17a6730",
+  "enginelargeskipper.v2--shroud--dust-low--ground--14608bbe"
+ ]
+}

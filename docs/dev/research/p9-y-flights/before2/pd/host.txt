@@ -1,0 +1,4 @@
+pid=2905720181
+parts=8
+situation=PRELAUNCH
+mode=air

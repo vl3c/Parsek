@@ -1,0 +1,6396 @@
+{
+ "burst": {
+  "cases": 47,
+  "families": {
+   "burst-custom": {
+    "error": 0,
+    "fail": 0,
+    "pass": 0,
+    "warn": 8
+   },
+   "decouple": {
+    "error": 29,
+    "fail": 3,
+    "pass": 0,
+    "warn": 0
+   },
+   "explode": {
+    "error": 0,
+    "fail": 0,
+    "pass": 0,
+    "warn": 3
+   },
+   "vessel-explode": {
+    "error": 0,
+    "fail": 4,
+    "pass": 0,
+    "warn": 0
+   }
+  },
+  "flags": {
+   "burst-structure-not-measured": 8,
+   "burst-unsettled": 47,
+   "burst-weak-core": 40
+  },
+  "kinds": {
+   "burst": 47,
+   "dust": 0
+  },
+  "thresholds": {
+   "burstCentroidOffsetFail": 0.3,
+   "burstCentroidOffsetWarn": 0.15,
+   "burstDurationFailFraction": 0.4,
+   "burstDurationWarnFraction": 0.2,
+   "burstOnsetFailBins": 1,
+   "burstPeakAreaFailMax": 1.6,
+   "burstPeakAreaFailMin": 0.6,
+   "burstPeakAreaWarnMax": 1.25,
+   "burstPeakAreaWarnMin": 0.8,
+   "burstPeakTimeFailBins": 2,
+   "burstPeakTimeWarnBins": 1,
+   "burstRadiusFailMax": 1.4,
+   "burstRadiusFailMin": 0.7,
+   "burstRadiusPercentile": 0.95,
+   "burstRadiusWarnMax": 1.18,
+   "burstRadiusWarnMin": 0.85,
+   "burstSchedulePositionToleranceM": 1.0,
+   "burstSchedulePowerEpsilon": 0.0001
+  }
+ },
+ "cases": [
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "explode",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-far:smoke:real=51,ghost=55"
+    ],
+    "reasons": [
+     "flag:burst-weak-core:event:burst-far:smoke:real=51,ghost=55"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 1,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": 1.2409420280928145e-05,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-top:smoke:real peakCorePx 638/709"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "advancedcanard--default--explode--air--cbf1cff7",
+   "context": "air",
+   "family": "explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "AdvancedCanard",
+   "reasons": [
+    "flag:burst-weak-core:event:burst-far:smoke:real=51,ghost=55"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "explode",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.006"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.002"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured",
+     "burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=513,ghost=3",
+     "burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=862,ghost=2",
+     "burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=58,ghost=0"
+    ],
+    "reasons": [
+     "event:burst-side:smoke:smoke=peak-area 0.006",
+     "event:burst-top:smoke:smoke=peak-area 0.002",
+     "flag:burst-structure-not-measured",
+     "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=513,ghost=3",
+     "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=862,ghost=2",
+     "flag:burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=58,ghost=0",
+     "burst-unsettled:capped at warn"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 4/3",
+     "event:burst-top:smoke:ghost peakCorePx 4/1"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "advancedcanard--default--puff--air--e01c0413",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "AdvancedCanard",
+   "reasons": [
+    "event:burst-side:smoke:smoke=peak-area 0.006",
+    "event:burst-top:smoke:smoke=peak-area 0.002",
+    "flag:burst-structure-not-measured",
+    "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=513,ghost=3",
+    "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=862,ghost=2",
+    "flag:burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=58,ghost=0",
+    "burst-unsettled:capped at warn"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "puff",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:smoke"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "duration",
+        "reason": "duration=-0.222"
+       },
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "centroid-offset",
+        "reason": "centroid-offset=0.173"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "centroid-offset",
+        "reason": "centroid-offset=0.388"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-time",
+        "reason": "peak-time=+1bins"
+       },
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "centroid-offset",
+        "reason": "centroid-offset=0.219"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "explode",
+    "flags": [
+     "burst-unsettled"
+    ],
+    "reasons": [
+     "event:burst-side:flame:duration=-0.222",
+     "event:burst-side:flame:centroid-offset=0.173",
+     "event:burst-top:flame:centroid-offset=0.388",
+     "event:burst-far:flame:peak-time=+1bins",
+     "event:burst-far:flame:centroid-offset=0.219",
+     "burst-unsettled:capped at warn"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 1,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": 1.2409420280928145e-05,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 2302/2677",
+     "event:burst-top:flame:real peakCorePx 2637/3132",
+     "event:burst-top:smoke:ghost peakCorePx 6084/6999",
+     "event:burst-far:flame:real peakCorePx 343/388"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "cargostorageunit--default--explode--air--69788d0d",
+   "context": "air",
+   "family": "explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "CargoStorageUnit",
+   "reasons": [
+    "event:burst-side:flame:duration=-0.222",
+    "event:burst-side:flame:centroid-offset=0.173",
+    "event:burst-top:flame:centroid-offset=0.388",
+    "event:burst-far:flame:peak-time=+1bins",
+    "event:burst-far:flame:centroid-offset=0.219",
+    "burst-unsettled:capped at warn"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "explode",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:flame"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.000"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.001"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured",
+     "burst-weak-core:event:burst-side:smoke:real=5494,ghost=2",
+     "burst-weak-core:event:burst-top:smoke:real=5313,ghost=3"
+    ],
+    "reasons": [
+     "event:burst-side:flame:burst-missing",
+     "event:burst-side:smoke:smoke=peak-area 0.000",
+     "event:burst-top:flame:burst-missing",
+     "event:burst-top:smoke:smoke=peak-area 0.001",
+     "event:burst-far:flame:burst-missing",
+     "event:burst-far:smoke:smoke-missing",
+     "flag:burst-structure-not-measured",
+     "flag:burst-weak-core:event:burst-side:smoke:real=5494,ghost=2",
+     "flag:burst-weak-core:event:burst-top:smoke:real=5313,ghost=3",
+     "burst-unsettled:capped at warn"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 3465/2968",
+     "event:burst-side:smoke:real peakCorePx 4238/6590",
+     "event:burst-top:flame:real peakCorePx 3115/2447",
+     "event:burst-top:smoke:real peakCorePx 4608/6405",
+     "event:burst-far:flame:real peakCorePx 476/377",
+     "event:burst-far:smoke:real peakCorePx 529/844"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "cargostorageunit--default--puff--air--b6aec2d9",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "CargoStorageUnit",
+   "reasons": [
+    "event:burst-side:flame:burst-missing",
+    "event:burst-side:smoke:smoke=peak-area 0.000",
+    "event:burst-top:flame:burst-missing",
+    "event:burst-top:smoke:smoke=peak-area 0.001",
+    "event:burst-far:flame:burst-missing",
+    "event:burst-far:smoke:smoke-missing",
+    "flag:burst-structure-not-measured",
+    "flag:burst-weak-core:event:burst-side:smoke:real=5494,ghost=2",
+    "flag:burst-weak-core:event:burst-top:smoke:real=5313,ghost=3",
+    "burst-unsettled:capped at warn"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "puff",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:flame"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 3/2",
+     "event:burst-top:smoke:ghost peakCorePx 6/3"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "decoupler.0--basic--decouple--air--aabc5928",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Decoupler.0",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=4",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=4",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-top:smoke:ghost peakCorePx 3/4"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "decoupler.1--basic--decouple--air--f8cfacb1",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Decoupler.1",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=4",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=4",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=4",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 2/0",
+     "event:burst-top:smoke:ghost peakCorePx 4/3"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "decoupler.1p5--basic--decouple--air--ffc68414",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Decoupler.1p5",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=4",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 4/1",
+     "event:burst-top:smoke:ghost peakCorePx 3/1"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "decoupler.2--basic--decouple--air--844ff77a",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Decoupler.2",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=1"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=1"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 6/1",
+     "event:burst-top:smoke:ghost peakCorePx 7/4"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "decoupler.3--basic--decouple--air--022de8db",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Decoupler.3",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=1"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=6",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=8",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=6",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=8",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 0/8",
+     "event:burst-top:smoke:ghost peakCorePx 4/8"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "decoupler.4--basic--decouple--air--6b7e560c",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Decoupler.4",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=6",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=8",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 2/0",
+     "event:burst-top:flame:ghost peakCorePx 1/0"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "engineplate1p5--long--decouple--air--50021a37",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "EnginePlate1p5",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=26,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=5,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=26,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=5,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 27/23",
+     "event:burst-side:smoke:ghost peakCorePx 1/5",
+     "event:burst-top:flame:ghost peakCorePx 1/0",
+     "event:burst-top:smoke:ghost peakCorePx 4/5",
+     "event:burst-far:flame:real peakCorePx 5/4"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "engineplate2--long--decouple--air--97a2145d",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "EnginePlate2",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=26,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=5,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 1/0",
+     "event:burst-side:smoke:ghost peakCorePx 1/4",
+     "event:burst-top:flame:ghost peakCorePx 0/1",
+     "event:burst-top:smoke:ghost peakCorePx 3/4"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "engineplate3--long--decouple--air--231e532a",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "EnginePlate3",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-top:flame:ghost peakCorePx 0/2",
+     "event:burst-top:smoke:ghost peakCorePx 2/3",
+     "event:burst-far:smoke:ghost peakCorePx 0/1"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "engineplate4--long--decouple--air--5e9de177",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "EnginePlate4",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=5",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=5",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 1/0",
+     "event:burst-side:smoke:ghost peakCorePx 2/4",
+     "event:burst-top:flame:ghost peakCorePx 1/0",
+     "event:burst-top:smoke:ghost peakCorePx 3/6"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "engineplate5--long--decouple--air--2bf3bc14",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "EnginePlate5",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=5",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=3",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=12",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=17",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=3",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=12",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=17",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 4/3",
+     "event:burst-top:flame:ghost peakCorePx 3/2"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "heatshield1p5--default--decouple--air--d258fcd5",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "HeatShield1p5",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=3",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=12",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=17",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=8",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=18",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=8",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=18",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 2/1",
+     "event:burst-side:smoke:ghost peakCorePx 15/10",
+     "event:burst-top:flame:ghost peakCorePx 4/3",
+     "event:burst-far:smoke:ghost peakCorePx 3/2"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "heatshield2--default--decouple--air--4a4d030b",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "HeatShield2",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=8",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=18",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=21",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=28",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=4"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=21",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=28",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=4"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 17/28",
+     "event:burst-top:smoke:ghost peakCorePx 22/29"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "heatshield3--default--decouple--air--576bc0ea",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "HeatShield3",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=21",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=28",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=4"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=20",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "missing-burst:Explosion 2",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=20",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "Explosion 2",
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 3315/23",
+     "event:burst-side:smoke:real presence smoke-missing",
+     "event:burst-top:flame:real peakCorePx 2115/24",
+     "event:burst-top:smoke:real presence smoke-missing",
+     "event:burst-far:flame:real peakCorePx 442/4",
+     "event:burst-far:smoke:real presence smoke-missing"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "inflatableheatshield--default--decouple--air--7f3e4789",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "InflatableHeatShield",
+   "reasons": [
+    "missing-burst:Explosion 2",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=20",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "explode",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-far:smoke:real=56,ghost=52"
+    ],
+    "reasons": [
+     "flag:burst-weak-core:event:burst-far:smoke:real=56,ghost=52"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 1,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": 1.2409420280928145e-05,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:smoke:real peakCorePx 549/405",
+     "event:burst-top:smoke:real peakCorePx 897/689",
+     "event:burst-far:smoke:real peakCorePx 63/46"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "mpoprobe--default--explode--air--ee65c4c2",
+   "context": "air",
+   "family": "explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "MpoProbe",
+   "reasons": [
+    "flag:burst-weak-core:event:burst-far:smoke:real=56,ghost=52"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "explode",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.008"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.004"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured",
+     "burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=474,ghost=4",
+     "burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=831,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=56,ghost=0"
+    ],
+    "reasons": [
+     "event:burst-side:smoke:smoke=peak-area 0.008",
+     "event:burst-top:smoke:smoke=peak-area 0.004",
+     "flag:burst-structure-not-measured",
+     "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=474,ghost=4",
+     "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=831,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=56,ghost=0",
+     "burst-unsettled:capped at warn"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 5/6",
+     "event:burst-top:flame:ghost peakCorePx 0/1",
+     "event:burst-top:smoke:ghost peakCorePx 2/8"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "mpoprobe--default--puff--air--1fbcbb44",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "MpoProbe",
+   "reasons": [
+    "event:burst-side:smoke:smoke=peak-area 0.008",
+    "event:burst-top:smoke:smoke=peak-area 0.004",
+    "flag:burst-structure-not-measured",
+    "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=474,ghost=4",
+    "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=831,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=56,ghost=0",
+    "burst-unsettled:capped at warn"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "puff",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:smoke"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=19",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=18",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=19",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=18",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 2/1"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "separator.0--basic--decouple--air--3817ba50",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Separator.0",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=19",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=18",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=16",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=19",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=16",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=19",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 3/1",
+     "event:burst-side:smoke:ghost peakCorePx 17/14",
+     "event:burst-top:flame:ghost peakCorePx 3/1",
+     "event:burst-far:smoke:ghost peakCorePx 2/1"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "separator.1--basic--decouple--air--61f01e19",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Separator.1",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=16",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=3",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=19",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=17",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=16",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=17",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=16",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 16/18",
+     "event:burst-top:flame:ghost peakCorePx 1/3",
+     "event:burst-top:smoke:ghost peakCorePx 16/18",
+     "event:burst-far:smoke:ghost peakCorePx 2/3"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "separator.1p5--basic--decouple--air--7a70fc9c",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Separator.1p5",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=17",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=16",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=16",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=17",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=16",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=17",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 2/1",
+     "event:burst-side:smoke:ghost peakCorePx 15/13",
+     "event:burst-top:flame:ghost peakCorePx 2/1",
+     "event:burst-top:smoke:ghost peakCorePx 19/14"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "separator.2--basic--decouple--air--b0b93e82",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Separator.2",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=16",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=17",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=21",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=25",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=21",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=25",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 22/25",
+     "event:burst-far:smoke:ghost peakCorePx 2/4"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "separator.3--basic--decouple--air--0b6f18e3",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Separator.3",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=21",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=25",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=23",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=2",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=28",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=23",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=2",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=28",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 17/22",
+     "event:burst-top:flame:ghost peakCorePx 4/1",
+     "event:burst-top:smoke:ghost peakCorePx 23/27",
+     "event:burst-far:flame:ghost peakCorePx 0/1",
+     "event:burst-far:smoke:ghost peakCorePx 1/2"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "separator.4--basic--decouple--air--7a4de154",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Separator.4",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=23",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=2",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=28",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=2"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/2",
+     "event:burst-side:smoke:ghost peakCorePx 6/4",
+     "event:burst-top:flame:ghost peakCorePx 1/2",
+     "event:burst-far:smoke:ghost peakCorePx 1/0"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "size1p5.strut.decoupler--basic--decouple--air--1efedcc5",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "Size1p5.Strut.Decoupler",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=6",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+     "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=6",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 5/3",
+     "event:burst-top:flame:ghost peakCorePx 1/0",
+     "event:burst-top:smoke:ghost peakCorePx 6/4",
+     "event:burst-far:smoke:ghost peakCorePx 1/0"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "fueltank--basic--joint-break--air--f8ca5d02",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "fuelTank",
+   "reasons": [
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=4",
+    "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=6",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "joint-break",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.088"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.140"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.073"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     }
+    ],
+    "family": "vessel-explode",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-far:smoke:real=782,ghost=57"
+    ],
+    "reasons": [
+     "event:burst-side:flame:burst-missing",
+     "event:burst-side:smoke:smoke=peak-area 0.088",
+     "event:burst-top:flame:burst-missing",
+     "event:burst-top:smoke:smoke=peak-area 0.140",
+     "event:burst-far:flame:burst-missing",
+     "event:burst-far:smoke:smoke=peak-area 0.073",
+     "schedule=index blast 0 3/0",
+     "missing-burst:Explosion 2",
+     "extra-burst:Thud 0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=782,ghost=57"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=index blast 0 3/0"
+      }
+     ],
+     "ghostCount": 1,
+     "indexDiffers": true,
+     "judged": true,
+     "level": "fail",
+     "maxOffsetDeltaM": 0.009129890653955194,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [
+      "Thud 0"
+     ],
+     "missing": [
+      "Explosion 2"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 2394/3298",
+     "event:burst-side:smoke:real peakCorePx 5260/6111",
+     "event:burst-top:flame:real peakCorePx 2334/3339",
+     "event:burst-far:flame:real peakCorePx 338/409",
+     "event:burst-far:smoke:real peakCorePx 629/841"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "fueltank--basic--vessel-explode-x1--air--c6746fce",
+   "context": "air",
+   "family": "vessel-explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "fuelTank",
+   "reasons": [
+    "event:burst-side:flame:burst-missing",
+    "event:burst-side:smoke:smoke=peak-area 0.088",
+    "event:burst-top:flame:burst-missing",
+    "event:burst-top:smoke:smoke=peak-area 0.140",
+    "event:burst-far:flame:burst-missing",
+    "event:burst-far:smoke:smoke=peak-area 0.073",
+    "schedule=index blast 0 3/0",
+    "missing-burst:Explosion 2",
+    "extra-burst:Thud 0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=782,ghost=57"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "vessel-explode-x1",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": "burst-top:smoke"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.080"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.130"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.069"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     }
+    ],
+    "family": "vessel-explode",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-far:smoke:real=810,ghost=56"
+    ],
+    "reasons": [
+     "event:burst-side:flame:burst-missing",
+     "event:burst-side:smoke:smoke=peak-area 0.080",
+     "event:burst-top:flame:burst-missing",
+     "event:burst-top:smoke:smoke=peak-area 0.130",
+     "event:burst-far:flame:burst-missing",
+     "event:burst-far:smoke:smoke=peak-area 0.069",
+     "schedule=index blast 0 3/0",
+     "missing-burst:Explosion 2",
+     "extra-burst:Thud 0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=810,ghost=56"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=index blast 0 3/0"
+      }
+     ],
+     "ghostCount": 1,
+     "indexDiffers": true,
+     "judged": true,
+     "level": "fail",
+     "maxOffsetDeltaM": 0.00916428706712028,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [
+      "Thud 0"
+     ],
+     "missing": [
+      "Explosion 2"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 2707/3345",
+     "event:burst-top:flame:real peakCorePx 2417/3229",
+     "event:burst-top:smoke:real peakCorePx 6376/5528",
+     "event:burst-far:flame:real peakCorePx 368/462",
+     "event:burst-far:smoke:real peakCorePx 718/812"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "fueltank--basic--vessel-explode-x2--air--e8072d17",
+   "context": "air",
+   "family": "vessel-explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "fuelTank",
+   "reasons": [
+    "event:burst-side:flame:burst-missing",
+    "event:burst-side:smoke:smoke=peak-area 0.080",
+    "event:burst-top:flame:burst-missing",
+    "event:burst-top:smoke:smoke=peak-area 0.130",
+    "event:burst-far:flame:burst-missing",
+    "event:burst-far:smoke:smoke=peak-area 0.069",
+    "schedule=index blast 0 3/0",
+    "missing-burst:Explosion 2",
+    "extra-burst:Thud 0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=810,ghost=56"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "vessel-explode-x2",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": "burst-side:smoke"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.161"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.148"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "presence",
+        "reason": "burst-missing"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.213"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-far"
+     }
+    ],
+    "family": "vessel-explode",
+    "flags": [
+     "burst-unsettled"
+    ],
+    "reasons": [
+     "event:burst-side:flame:burst-missing",
+     "event:burst-side:smoke:smoke=peak-area 0.161",
+     "event:burst-top:flame:burst-missing",
+     "event:burst-top:smoke:smoke=peak-area 0.148",
+     "event:burst-far:flame:burst-missing",
+     "event:burst-far:smoke:smoke=peak-area 0.213",
+     "schedule=index blast 0 3/1",
+     "missing-burst:Explosion 2",
+     "extra-burst:Explosion 0"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=index blast 0 3/1"
+      }
+     ],
+     "ghostCount": 1,
+     "indexDiffers": true,
+     "judged": true,
+     "level": "fail",
+     "maxOffsetDeltaM": 0.47465714406707277,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [
+      "Explosion 0"
+     ],
+     "missing": [
+      "Explosion 2"
+     ]
+    },
+    "unsettled": [
+     "event:burst-top:smoke:real peakCorePx 6730/5860"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "fueltank--basic--vessel-explode-x3--air--37d70448",
+   "context": "air",
+   "family": "vessel-explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "fuelTank",
+   "reasons": [
+    "event:burst-side:flame:burst-missing",
+    "event:burst-side:smoke:smoke=peak-area 0.161",
+    "event:burst-top:flame:burst-missing",
+    "event:burst-top:smoke:smoke=peak-area 0.148",
+    "event:burst-far:flame:burst-missing",
+    "event:burst-far:smoke:smoke=peak-area 0.213",
+    "schedule=index blast 0 3/1",
+    "missing-burst:Explosion 2",
+    "extra-burst:Explosion 0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "vessel-explode-x3",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": "burst-side:flame"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-time",
+        "reason": "peak-time=+1bins"
+       },
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "duration",
+        "reason": "duration=-0.250"
+       },
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "centroid-offset",
+        "reason": "centroid-offset=1.275"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-time",
+        "reason": "peak-time=+1bins"
+       },
+       {
+        "capped": true,
+        "level": "warn",
+        "measure": "centroid-offset",
+        "reason": "centroid-offset=1.027"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "fail",
+        "measure": "centroid-offset",
+        "reason": "centroid-offset=1.038"
+       },
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "colour",
+        "reason": "colour=mean chroma 0.0342 hueL1 0.0415"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "fail",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "vessel-explode",
+    "flags": [
+     "burst-unsettled"
+    ],
+    "reasons": [
+     "event:burst-side:flame:peak-time=+1bins",
+     "event:burst-side:flame:duration=-0.250",
+     "event:burst-side:flame:centroid-offset=1.275",
+     "event:burst-top:flame:peak-time=+1bins",
+     "event:burst-top:flame:centroid-offset=1.027",
+     "event:burst-far:flame:centroid-offset=1.038",
+     "event:burst-far:flame:colour=mean chroma 0.0342 hueL1 0.0415",
+     "schedule=power blast 0 0.5000/0.5362",
+     "schedule=offset blast 0 2.903m"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "warn",
+       "reason": "schedule=power blast 0 0.5000/0.5362"
+      },
+      {
+       "level": "fail",
+       "reason": "schedule=offset blast 0 2.903m"
+      }
+     ],
+     "ghostCount": 1,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "fail",
+     "maxOffsetDeltaM": 2.903032888549597,
+     "powerDiffers": true,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 3011/2421",
+     "event:burst-side:smoke:real peakCorePx 4797/5992",
+     "event:burst-top:flame:real peakCorePx 2470/3221",
+     "event:burst-top:smoke:real peakCorePx 4889/5660",
+     "event:burst-far:smoke:real peakCorePx 649/725"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "fueltank--basic--vessel-explode-x6--air--50a6fdbb",
+   "context": "air",
+   "family": "vessel-explode",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "fuelTank",
+   "reasons": [
+    "event:burst-side:flame:peak-time=+1bins",
+    "event:burst-side:flame:duration=-0.250",
+    "event:burst-side:flame:centroid-offset=1.275",
+    "event:burst-top:flame:peak-time=+1bins",
+    "event:burst-top:flame:centroid-offset=1.027",
+    "event:burst-far:flame:centroid-offset=1.038",
+    "event:burst-far:flame:colour=mean chroma 0.0342 hueL1 0.0415",
+    "schedule=power blast 0 0.5000/0.5362",
+    "schedule=offset blast 0 2.903m"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "vessel-explode-x6",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": "burst-far:flame"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-top:flame:ghost peakCorePx 1/2",
+     "event:burst-top:smoke:ghost peakCorePx 1/5"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "kv1pod--default--decouple--air--956881f9",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "kv1Pod",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 1/0",
+     "event:burst-side:smoke:ghost peakCorePx 4/3",
+     "event:burst-top:flame:ghost peakCorePx 0/1",
+     "event:burst-top:smoke:ghost peakCorePx 3/2"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "kv2pod--default--decouple--air--5b61d054",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "kv2Pod",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=23,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=2",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=5",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=2",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=5",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 2/1",
+     "event:burst-top:flame:ghost peakCorePx 3/1",
+     "event:burst-top:smoke:ghost peakCorePx 6/7"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "kv3pod--default--decouple--air--6ca7f05f",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "kv3Pod",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=1",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=2",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=5",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "SquadExpansion",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured",
+     "burst-weak-core:event:burst-far:smoke:real=61,ghost=56"
+    ],
+    "reasons": [
+     "flag:burst-structure-not-measured",
+     "flag:burst-weak-core:event:burst-far:smoke:real=61,ghost=56"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 529/467",
+     "event:burst-top:smoke:ghost peakCorePx 903/707"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "parsek.customexplosion--default--custom-l1--air--6fd31c7a",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "parsek.customExplosion",
+   "reasons": [
+    "flag:burst-structure-not-measured",
+    "flag:burst-weak-core:event:burst-far:smoke:real=61,ghost=56"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": null,
+   "state": "custom-l1",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-time",
+        "reason": "peak-time=-1bins"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-time",
+        "reason": "peak-time=-1bins"
+       },
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "colour",
+        "reason": "colour=peak chroma 0.0402 hueL1 0.0544"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured"
+    ],
+    "reasons": [
+     "event:burst-side:flame:peak-time=-1bins",
+     "event:burst-far:flame:peak-time=-1bins",
+     "event:burst-far:flame:colour=peak chroma 0.0402 hueL1 0.0544",
+     "flag:burst-structure-not-measured"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 2486/2790",
+     "event:burst-side:smoke:ghost peakCorePx 5887/5046",
+     "event:burst-top:flame:real peakCorePx 2546/3158",
+     "event:burst-top:smoke:real peakCorePx 4836/5697",
+     "event:burst-far:flame:real peakCorePx 339/381",
+     "event:burst-far:smoke:ghost peakCorePx 723/645"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "parsek.customexplosion--default--custom-l10--air--fc000474",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "parsek.customExplosion",
+   "reasons": [
+    "event:burst-side:flame:peak-time=-1bins",
+    "event:burst-far:flame:peak-time=-1bins",
+    "event:burst-far:flame:colour=peak chroma 0.0402 hueL1 0.0544",
+    "flag:burst-structure-not-measured"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": null,
+   "state": "custom-l10",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:flame"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-area",
+        "reason": "peak-area=1.541"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "peak-area",
+        "reason": "peak-area=1.541"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured"
+    ],
+    "reasons": [
+     "event:burst-side:flame:peak-area=1.541",
+     "event:burst-top:flame:peak-area=1.541",
+     "flag:burst-structure-not-measured"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 11238/7414",
+     "event:burst-side:smoke:real peakCorePx 2658/1882",
+     "event:burst-top:flame:real peakCorePx 11238/7415",
+     "event:burst-top:smoke:real peakCorePx 2656/1876",
+     "event:burst-far:flame:ghost peakCorePx 2152/1891",
+     "event:burst-far:smoke:ghost peakCorePx 458/635"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "parsek.customexplosion--default--custom-l15--air--74493e9f",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "parsek.customExplosion",
+   "reasons": [
+    "event:burst-side:flame:peak-area=1.541",
+    "event:burst-top:flame:peak-area=1.541",
+    "flag:burst-structure-not-measured"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": null,
+   "state": "custom-l15",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:flame"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [
+       {
+        "capped": false,
+        "level": "warn",
+        "measure": "smoke",
+        "reason": "smoke=peak-area 0.712"
+       }
+      ],
+      "reference": false,
+      "route": "event",
+      "verdict": "warn",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured"
+    ],
+    "reasons": [
+     "event:burst-side:smoke:smoke=peak-area 0.712",
+     "flag:burst-structure-not-measured"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:real peakCorePx 5114/4131",
+     "event:burst-top:flame:ghost peakCorePx 5208/4131",
+     "event:burst-top:smoke:ghost peakCorePx 3630/4200",
+     "event:burst-far:flame:real peakCorePx 1632/1406"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "parsek.customexplosion--default--custom-l20--air--c43ff01b",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "parsek.customExplosion",
+   "reasons": [
+    "event:burst-side:smoke:smoke=peak-area 0.712",
+    "flag:burst-structure-not-measured"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": null,
+   "state": "custom-l20",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": "burst-side:smoke"
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "pass",
+      "view": "burst-far"
+     }
+    ],
+    "family": "burst-custom",
+    "flags": [
+     "burst-unsettled",
+     "burst-structure-not-measured"
+    ],
+    "reasons": [
+     "flag:burst-structure-not-measured"
+    ],
+    "schedule": {
+     "findings": [
+      {
+       "level": "fail",
+       "reason": "schedule=count 1/0"
+      }
+     ],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": false,
+     "level": "fail",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 1
+    },
+    "structure": {
+     "extra": [],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:smoke:real peakCorePx 873/772",
+     "event:burst-top:smoke:real peakCorePx 876/764",
+     "event:burst-far:smoke:real peakCorePx 134/104"
+    ],
+    "verdict": "warn"
+   },
+   "caseId": "parsek.customexplosion--default--custom-l5--air--ac16bfe6",
+   "context": "air",
+   "family": "burst-custom",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "parsek.customExplosion",
+   "reasons": [
+    "flag:burst-structure-not-measured"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": null,
+   "state": "custom-l5",
+   "stateFlags": [],
+   "verdict": "warn",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-top:flame:real=23,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-top:flame:real=23,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 2/1"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "radialdecoupler--default--decouple--air--683f52a8",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "radialDecoupler",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-top:flame:real=23,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=24,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=24,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=24,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 0/3",
+     "event:burst-top:smoke:ghost peakCorePx 0/2"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "radialdecoupler1-2--default--decouple--air--16c70a0e",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "radialDecoupler1-2",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=24,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=24,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=1",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=24,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=24,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 6/4",
+     "event:burst-top:smoke:ghost peakCorePx 3/2"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "radialdecoupler2--default--decouple--air--8f0199b0",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "radialDecoupler2",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=24,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:smoke:ghost peakCorePx 2/6",
+     "event:burst-top:smoke:ghost peakCorePx 0/5"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "smallhardpoint--default--decouple--air--556cb4f4",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "smallHardpoint",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+     "missing-burst:fx_gasBurst_white",
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": [
+      "fx_gasBurst_white"
+     ]
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 0/1",
+     "event:burst-side:smoke:ghost peakCorePx 4/6",
+     "event:burst-top:flame:ghost peakCorePx 1/0"
+    ],
+    "verdict": "error"
+   },
+   "caseId": "structuralpylon--default--decouple--air--ff0c2389",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "structuralPylon",
+   "reasons": [
+    "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+    "missing-burst:fx_gasBurst_white",
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=25,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-top:flame:real=25,ghost=1",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=4,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "decouple",
+   "stateFlags": [],
+   "verdict": "error",
+   "worstView": null
+  },
+  {
+   "burst": {
+    "entries": [
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-side"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-top"
+     },
+     {
+      "layer": "flame",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     },
+     {
+      "layer": "smoke",
+      "reasons": [],
+      "reference": false,
+      "route": "event",
+      "verdict": "skipped",
+      "view": "burst-far"
+     }
+    ],
+    "family": "decouple",
+    "flags": [
+     "burst-unsettled",
+     "burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+     "burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "reasons": [
+     "extra-burst:GhostPartPuffFx",
+     "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+     "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+     "flag:burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+     "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+    ],
+    "schedule": {
+     "findings": [],
+     "ghostCount": 0,
+     "indexDiffers": false,
+     "judged": true,
+     "level": "ok",
+     "maxOffsetDeltaM": null,
+     "powerDiffers": false,
+     "realCount": 0
+    },
+    "structure": {
+     "extra": [
+      "GhostPartPuffFx"
+     ],
+     "missing": []
+    },
+    "unsettled": [
+     "event:burst-side:flame:ghost peakCorePx 2/0",
+     "event:burst-top:flame:ghost peakCorePx 0/1",
+     "event:burst-top:smoke:ghost peakCorePx 4/5",
+     "event:burst-far:smoke:ghost peakCorePx 1/0"
+    ],
+    "verdict": "fail"
+   },
+   "caseId": "trusspiece1x--default--joint-break--air--c2be041b",
+   "context": "air",
+   "family": "decouple",
+   "maxColorBlobPx": 0,
+   "maxShapeBlobPct": null,
+   "maxShapeBlobPx": 0,
+   "part": "trussPiece1x",
+   "reasons": [
+    "extra-burst:GhostPartPuffFx",
+    "flag:burst-weak-core:event:burst-side:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-side:smoke:real=0,ghost=2",
+    "flag:burst-weak-core:event:burst-top:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-top:smoke:real=0,ghost=3",
+    "flag:burst-weak-core:event:burst-far:flame:real=0,ghost=0",
+    "flag:burst-weak-core:event:burst-far:smoke:real=0,ghost=0"
+   ],
+   "routes": {},
+   "setupStatus": "ok",
+   "skin": null,
+   "source": "Squad",
+   "state": "joint-break",
+   "stateFlags": [],
+   "verdict": "fail",
+   "worstView": null
+  }
+ ],
+ "completeness": {
+  "complete": 47,
+  "ok": true,
+  "planned": 47,
+  "problems": [],
+  "setupFaults": 0
+ },
+ "controls": {
+  "ok": false,
+  "outcomes": {},
+  "problems": [
+   "ctl-burst-empty:absent",
+   "ctl-burst-real-vs-real:absent",
+   "ctl-burst-off:absent",
+   "ctl-burst-late:absent",
+   "ctl-burst-power:absent",
+   "ctl-burst-shift:absent",
+   "ctl-burst-hue:absent",
+   "progress.controls=off"
+  ],
+  "state": "off"
+ },
+ "counts": {
+  "cases": 47,
+  "error": 29,
+  "fail": 7,
+  "pass": 0,
+  "warn": 11
+ },
+ "gate": {
+  "accepted": [],
+  "baselineRuns": [],
+  "counts": {
+   "drift": 0,
+   "gone": 0,
+   "no-baseline": 1,
+   "setup-fault": 29,
+   "unaccepted-fail": 0
+  },
+  "label": "pb",
+  "notes": [
+   {
+    "caseId": "decoupler.0--basic--decouple--air--aabc5928",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "decoupler.1--basic--decouple--air--f8cfacb1",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "decoupler.1p5--basic--decouple--air--ffc68414",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "decoupler.2--basic--decouple--air--844ff77a",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "decoupler.3--basic--decouple--air--022de8db",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "decoupler.4--basic--decouple--air--6b7e560c",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "engineplate1p5--long--decouple--air--50021a37",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "engineplate2--long--decouple--air--97a2145d",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "engineplate3--long--decouple--air--231e532a",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "engineplate4--long--decouple--air--5e9de177",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "engineplate5--long--decouple--air--2bf3bc14",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "heatshield1p5--default--decouple--air--d258fcd5",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "heatshield2--default--decouple--air--4a4d030b",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "heatshield3--default--decouple--air--576bc0ea",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "separator.0--basic--decouple--air--3817ba50",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "separator.1--basic--decouple--air--61f01e19",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "separator.1p5--basic--decouple--air--7a70fc9c",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "separator.2--basic--decouple--air--b0b93e82",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "separator.3--basic--decouple--air--0b6f18e3",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "separator.4--basic--decouple--air--7a4de154",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "size1p5.strut.decoupler--basic--decouple--air--1efedcc5",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "kv1pod--default--decouple--air--956881f9",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "kv2pod--default--decouple--air--5b61d054",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "kv3pod--default--decouple--air--6ca7f05f",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "radialdecoupler--default--decouple--air--683f52a8",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "radialdecoupler1-2--default--decouple--air--16c70a0e",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "radialdecoupler2--default--decouple--air--8f0199b0",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "smallhardpoint--default--decouple--air--556cb4f4",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   },
+   {
+    "caseId": "structuralpylon--default--decouple--air--ff0c2389",
+    "detail": "the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered), missing-burst:fx_gasBurst_white",
+    "kind": "setup-fault"
+   }
+  ],
+  "ok": false,
+  "profile": "stock-minimal",
+  "reds": [
+   {
+    "caseId": null,
+    "detail": "no baseline section for label pb in baseline-stock-minimal.json",
+    "kind": "no-baseline"
+   }
+  ],
+  "tolerances": {
+   "blobRel": 0.5,
+   "colorAbsPx": 192,
+   "fxAbs": 0.5,
+   "fxRel": 0.5,
+   "iouAbs": 0.01,
+   "shapeAbsPx": 48
+  },
+  "unmeasured": []
+ },
+ "gating": false,
+ "invalidSubkind": "parity-controls",
+ "label": "pb",
+ "problems": [
+  "controls: ctl-burst-empty:absent, ctl-burst-real-vs-real:absent, ctl-burst-off:absent, ctl-burst-late:absent, ctl-burst-power:absent, ctl-burst-shift:absent, ctl-burst-hue:absent, progress.controls=off",
+  "recompute: 29 mismatch(es): decoupler.0--basic--decouple--air--aabc5928 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered); decoupler.1--basic--decouple--air--f8cfacb1 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered); decoupler.1p5--basic--decouple--air--ffc68414 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered); decoupler.2--basic--decouple--air--844ff77a the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered); decoupler.3--basic--decouple--air--022de8db the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered) ..."
+ ],
+ "recompute": {
+  "cases": [
+   "parsek.customexplosion--default--custom-l1--air--6fd31c7a.burst"
+  ],
+  "mismatches": [
+   "decoupler.0--basic--decouple--air--aabc5928 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "decoupler.1--basic--decouple--air--f8cfacb1 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "decoupler.1p5--basic--decouple--air--ffc68414 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "decoupler.2--basic--decouple--air--844ff77a the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "decoupler.3--basic--decouple--air--022de8db the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "decoupler.4--basic--decouple--air--6b7e560c the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "engineplate1p5--long--decouple--air--50021a37 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "engineplate2--long--decouple--air--97a2145d the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "engineplate3--long--decouple--air--231e532a the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "engineplate4--long--decouple--air--5e9de177 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "engineplate5--long--decouple--air--2bf3bc14 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "heatshield1p5--default--decouple--air--d258fcd5 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "heatshield2--default--decouple--air--4a4d030b the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "heatshield3--default--decouple--air--576bc0ea the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "separator.0--basic--decouple--air--3817ba50 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "separator.1--basic--decouple--air--61f01e19 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "separator.1p5--basic--decouple--air--7a70fc9c the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "separator.2--basic--decouple--air--b0b93e82 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "separator.3--basic--decouple--air--0b6f18e3 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "separator.4--basic--decouple--air--7a4de154 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "size1p5.strut.decoupler--basic--decouple--air--1efedcc5 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "kv1pod--default--decouple--air--956881f9 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "kv2pod--default--decouple--air--5b61d054 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "kv3pod--default--decouple--air--6ca7f05f the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "radialdecoupler--default--decouple--air--683f52a8 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "radialdecoupler1-2--default--decouple--air--16c70a0e the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "radialdecoupler2--default--decouple--air--8f0199b0 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "smallhardpoint--default--decouple--air--556cb4f4 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)",
+   "structuralpylon--default--decouple--air--ff0c2389 the real side drew nothing on an ok decouple case (envelope=true realTagged=0 realBlasts=0; the writer records burst-not-triggered)"
+  ]
+ },
+ "runId": "2026-11-28_1305_P9-burst-dust",
+ "schema": "parsek-part-parity-verdicts/1",
+ "stateFlags": {},
+ "statePress": {
+  "families": {
+   "burst-custom": {
+    "cases": 8,
+    "pressFailed": 0
+   },
+   "decouple": {
+    "cases": 32,
+    "pressFailed": 0
+   },
+   "explode": {
+    "cases": 3,
+    "pressFailed": 0
+   },
+   "vessel-explode": {
+    "cases": 4,
+    "pressFailed": 0
+   }
+  },
+  "ok": true,
+  "problems": []
+ },
+ "status": "INVALID",
+ "thresholds": {
+  "colorBlobFailPx": 256,
+  "recomputeSampleFraction": 0.02,
+  "shapeBlobFailPct": 0.2,
+  "shapeBlobFailPx": 64,
+  "warnFraction": 0.25
+ },
+ "worst": [
+  "decoupler.0--basic--decouple--air--aabc5928",
+  "decoupler.1--basic--decouple--air--f8cfacb1",
+  "decoupler.1p5--basic--decouple--air--ffc68414",
+  "decoupler.2--basic--decouple--air--844ff77a",
+  "decoupler.3--basic--decouple--air--022de8db"
+ ]
+}
