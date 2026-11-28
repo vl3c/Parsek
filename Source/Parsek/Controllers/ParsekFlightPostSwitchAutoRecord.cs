@@ -1649,7 +1649,7 @@ namespace Parsek
             bool hasActiveVessel = FlightGlobals.ActiveVessel != null;
             if (hasActiveVessel && CameraDrone.Is(FlightGlobals.ActiveVessel))
             {
-                ParsekLog.Info("FarWatch",
+                ParsekLog.VerboseRateLimited("FarWatch", "deferred-autorecord-eva-drone",
                     "HandleDeferredAutoRecordEva: skipped while the far-watch camera drone is active");
                 return;
             }

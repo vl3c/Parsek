@@ -1,8 +1,8 @@
 schema = 1
 id = "FW-1-far-watch-drone-swap"
 # ====================================================================================
-# NEVER FLOWN (authored 2026-11-27 with the step 2 FarWatch seam verb, branch
-# far-watch-step2). Tier operator and tag pending-flight until a first green flight.
+# FLOWN GREEN (authored 2026-11-27 with the step 2 FarWatch seam verb, branch
+# far-watch-step2). First green flight 2026-11-28_0125 (PASS attempt 1, 58 s); tier operator, tag flown.
 #
 # Design authority: docs/dev/design-far-watch.md section 17.4 (FW-1 drone swap), 9.2
 # (the seam SaveGame carve-out), H7 (seam refusals during a far watch).
@@ -41,7 +41,7 @@ id = "FW-1-far-watch-drone-swap"
 # - fail fast on a doomed attempt: retry none; every step expects OK, so a refused
 #   `FarWatch start` (safety verdict, far-watch-active) stops the run at that step.
 # - tight count windows: exact counts on the stash / restore lines (one load).
-# - tier by measured p50: operator until the first green flight gives a p50.
+# - tier by measured p50: one green flight (58 s); stays operator until more flights give a p50.
 # - flight_efficiency.py check after the first green flight: owed.
 #
 # EXPECTATIONS THE HARNESS CANNOT STATE YET (kept here as comments, owed with the lane):
@@ -67,7 +67,7 @@ id = "FW-1-far-watch-drone-swap"
 tier = "operator"
 description = "Far-watch drone swap on duna-ike-recorded-career: a far watch on the probe tree's loop ghost with the camera drone beside the Ike-orbiting DD1, the one allowed seam save fw1-probe during the watch, stop, then a load of fw1-probe back into FLIGHT: the save must carry no drone, the ship as the active vessel and the active tree in the outsider shape that restores through the vessel-switch path."
 instanceProfile = "stock-minimal"
-tags = ["far-watch", "loop-playback", "save-load", "pending-flight"]
+tags = ["far-watch", "loop-playback", "save-load", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-ike-recorded-career"

@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
 | seam-only lanes | 552 |
-| LIVE-PROVEN date in status row | 597 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 598 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -65,7 +65,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FLG | 2 | - | 2 | - | - | - | 2 |
 | FLY | 5 | - | 5 | - | - | - | 5 |
 | FORGE | 10 | - | - | 10 | - | 9 | 5 |
-| FW | 1 | - | - | 1 | - | - | - |
+| FW | 1 | - | - | 1 | - | - | 1 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
 | GM | 1 | - | - | 1 | - | - | 1 |
@@ -370,8 +370,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
 | Gilly | 7 | 2 | 5 | V 4, B 2, FAR 1 |
-| Duna | 32 | 10 | 21 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, FW 1, GUI 1 +3 |
-| Ike | 11 | 3 | 10 | V 4, FAR 3, B 2, FW 1, RF 1 |
+| Duna | 32 | 10 | 22 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, FW 1, GUI 1 +3 |
+| Ike | 11 | 3 | 11 | V 4, FAR 3, B 2, FW 1, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
 | Jool | 48 | 18 | 42 | V 25, B 18, SPW 2, FAR 1, S 1, TP 1 |
 | Laythe | 29 | 15 | 29 | B 14, V 11, FAR 1, LAY 1, SPW 1, TP 1 |
@@ -1228,7 +1228,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| FW-1-far-watch-drone-swap | operator | duna-ike-recorded-career | seam | Duna, Ike | reload, save, warp | - | stock-minimal; never flown |
+| FW-1-far-watch-drone-swap | operator | duna-ike-recorded-career | seam | Duna, Ike | reload, save, warp | - | LIVE-PROVEN 2026-11-28 |
 
 ### FXR (1)
 
