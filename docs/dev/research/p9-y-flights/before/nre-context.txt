@@ -1,0 +1,169 @@
+P9-burst-dust BEFORE run 2026-11-28_1119 (origin/main): log context around the first failures.
+Source: the run's collected KSP.log (logs/flights/p9-y4-before-P9-burst-dust/2026-11-28_1119_P9-burst-dust_shots/KSP.log).
+No stack trace exists: 'at Parsek.' occurs 0 times in KSP.log and Player.log; the only [EXC] line is KSPCF's intended loader stop at boot.
+The trigger NRE is caught and only its Message is logged. Dust: 54 cases ok, 27 dust-no-stock-hit (water),
+9 state-timeout 'engine not lit' = jetengine, minijetengine, turbofansize2 x3 contexts each (air-breathers only).
+
+=== 1. first 'trigger: NullReferenceException' (KSP.log lines 12030-12109) ===
+[LOG 13:20:00.808] [Parsek][VERBOSE][Spawner] Crew dedup: checked 0 crew against 1 existing - no duplicates
+[LOG 13:20:00.808] [Parsek][INFO][VesselNames] Link added: kind=Spawn guid=baf39a13d2bd402b94e310db9c84673d -> 9988c15a872d4a498086e9c5cb513e68 reason=spawn rec=<none> links=4
+[LOG 13:20:00.808] [Parsek][VERBOSE][Spawner] Regenerated vessel identity: pid=baf39a13d2bd402b94e310db9c84673d, 1 part(s) regenerated, 1 old PID(s) cleaned from registry, dockRefsRemapped=0 seatOccupantsRemapped=0 dockAbsorbRowsCopied=0
+[LOG 13:20:00.808] [Parsek][INFO][Spawner] Spawn prep: added 4 missing node(s) to snapshot
+[LOG 13:20:00.809] [Parsek][INFO][Spawner] SpawnAtPosition: vessel spawned (sit=FLYING, pid=1122310537, body=Kerbin, alt=1600m) storedParts=0
+[LOG 13:20:00.809] [Parsek][INFO][PartParity] spawn advancedcanard--default--explode--air--cbf1cff7-t3: pid=1122310537 in the air lat=-0.09147 lon=-74.53840 alt=1600m descent=0.0m/s orbitalSpeed=175.4m/s body=Kerbin
+[LOG 13:20:00.809] [Parsek][INFO][PartParity] burst spawn advancedcanard--default--explode--air--cbf1cff7: family=explode state=explode trials=4 standIn=- potential=0.1 stack=0 tile=128 bins=16 control=-
+[LOG 13:20:00.809] [Parsek][INFO][TestCommands] exec id=0007 verdict=PENDING (two-phase awaiting completion)
+[LOG 13:20:00.889] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part AdvancedCanard (PartParity advancedcanard--default--explode--air--cbf1cff7-t0) on vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t0
+[LOG 13:20:00.890] [FlightIntegrator]: Vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t0 has been unloaded 1.79769313486232E+308, applying analytic temperature 299.209677202298
+[LOG 13:20:00.890] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part AdvancedCanard (PartParity advancedcanard--default--explode--air--cbf1cff7-t1) on vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t1
+[LOG 13:20:00.890] [FlightIntegrator]: Vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t1 has been unloaded 1.79769313486232E+308, applying analytic temperature 299.209867234764
+[LOG 13:20:00.890] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part AdvancedCanard (PartParity advancedcanard--default--explode--air--cbf1cff7-t2) on vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t2
+[LOG 13:20:00.890] [FlightIntegrator]: Vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t2 has been unloaded 1.79769313486232E+308, applying analytic temperature 299.210057023458
+[LOG 13:20:00.890] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part AdvancedCanard (PartParity advancedcanard--default--explode--air--cbf1cff7-t3) on vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t3
+[LOG 13:20:00.890] [FlightIntegrator]: Vessel PartParity advancedcanard--default--explode--air--cbf1cff7-t3 has been unloaded 1.79769313486232E+308, applying analytic temperature 299.210245126657
+[LOG 13:20:01.231] Unpacking PartParity advancedcanard--default--explode--air--cbf1cff7-t0
+[LOG 13:20:01.231] Unpacking PartParity advancedcanard--default--explode--air--cbf1cff7-t1
+[LOG 13:20:01.231] Unpacking PartParity advancedcanard--default--explode--air--cbf1cff7-t2
+[LOG 13:20:01.231] Unpacking PartParity advancedcanard--default--explode--air--cbf1cff7-t3
+[LOG 13:20:01.260] [Parsek][VERBOSE][Scenario] SeedRecorderResourceBaselines: gave up after 120 frames with baselines still unseeded (expected in sandbox, where the currency singletons never load)
+[LOG 13:20:02.760] [Parsek][INFO][OrbitClearance] Deletion altitude resolved: body=Kerbin deletionAlt=24940m atmoTop=70000m thresholdKPa=1.0
+[LOG 13:20:02.767] [Parsek][VERBOSE][GhostVisual]   Part 'AdvancedCanard' pid=3147317342: modelRoot='model' modelScale=(1.0, 1.0, 1.0) modelPos=(0.0, 0.0, 0.0) modelRot=(0.0, 0.0, 0.0, 1.0), 2 MeshRenderers, 0 SkinnedMeshRenderers
+[LOG 13:20:02.770] [Parsek][VERBOSE][GhostVisual]   Part 'AdvancedCanard' pid=3147317342: cloned 2 MeshRenderers, 0 SkinnedMeshRenderers, skipped 0 null-mesh SMRs, skipped 0 damaged-wheel renderers, skipped 0 depth-mask renderers
+[LOG 13:20:02.776] [Parsek][VERBOSE][GhostVisual]     EnsureFullHierarchy 'AdvancedCanard': created 1 missing intermediate transforms for animation support
+[LOG 13:20:02.779] [Parsek][VERBOSE][GhostVisual] Synthesized motion for 'AdvancedCanard' pid=3147317342: gimbals=0 surfaces=1 sunTrackers=0 converterLoops=0
+[LOG 13:20:02.788] [Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals
+[LOG 13:20:02.792] [Parsek][VERBOSE][GhostVisual] Spawn baseline: stowed 1/1 deployable(s) (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t0')
+[LOG 13:20:02.794] [Parsek][VERBOSE][GhostVisual] Snapshot baseline applied: parts=1 deployables=1 brokenDeployables=0 brokenWheels=0 parachutes=0 lights=0 servos=0 servosSkipped=0 deployLoops=0 (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t0')
+[LOG 13:20:02.796] [Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals
+[LOG 13:20:02.796] [Parsek][VERBOSE][GhostVisual] Spawn baseline: stowed 1/1 deployable(s) (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t1')
+[LOG 13:20:02.796] [Parsek][VERBOSE][GhostVisual] Snapshot baseline applied: parts=1 deployables=1 brokenDeployables=0 brokenWheels=0 parachutes=0 lights=0 servos=0 servosSkipped=0 deployLoops=0 (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t1')
+[LOG 13:20:02.796] [Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals
+[LOG 13:20:02.796] [Parsek][VERBOSE][GhostVisual] Spawn baseline: stowed 1/1 deployable(s) (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t2')
+[LOG 13:20:02.796] [Parsek][VERBOSE][GhostVisual] Snapshot baseline applied: parts=1 deployables=1 brokenDeployables=0 brokenWheels=0 parachutes=0 lights=0 servos=0 servosSkipped=0 deployLoops=0 (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t2')
+[LOG 13:20:02.797] [Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals
+[LOG 13:20:02.797] [Parsek][VERBOSE][GhostVisual] Spawn baseline: stowed 1/1 deployable(s) (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t3')
+[LOG 13:20:02.797] [Parsek][VERBOSE][GhostVisual] Snapshot baseline applied: parts=1 deployables=1 brokenDeployables=0 brokenWheels=0 parachutes=0 lights=0 servos=0 servosSkipped=0 deployLoops=0 (vessel='PartParity advancedcanard--default--explode--air--cbf1cff7-t3')
+[LOG 13:20:02.797] [Parsek][VERBOSE][TransientFx] Transient FX record armed
+[LOG 13:20:02.797] [Parsek][VERBOSE][PartParity] case advancedcanard--default--explode--air--cbf1cff7: burst trials prepared ghosts=4 preexistingFx=0 recordArmedHere=true
+[LOG 13:20:02.802] [Parsek][WARN][PartParity] case advancedcanard--default--explode--air--cbf1cff7: trigger: NullReferenceException: Object reference not set to an instance of an object
+[LOG 13:20:03.788] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 13:20:03.792] [Parsek][VERBOSE][PredictedCrashReconcile] Pass: scene=FLIGHT nowUT=13.640 candidates=0 contradicted=0 applied=0 failed=0 awaitingConfirmation=0 stockMayStillRemove=0 stockStillSimulating=0 vesselGone=0 vesselIsActive=0 notDueYet=0 ownedElsewhere=0 noLaunchGuid=0 nextDueUT=NaN recheck=false removedByPlayer=0
+[LOG 13:20:06.887] [Parsek][INFO][PartParity] burst case advancedcanard--default--explode--air--cbf1cff7: captured frames=223 bins=16 realTagged=0 ghostTagged=0 stray=0 realBlasts=0 ghostBlasts=0 ghostEvent=<none> status=burst-not-triggered
+[LOG 13:20:06.963] [Parsek][WARN][PartParity] case advancedcanard--default--explode--air--cbf1cff7: setup fault burst-not-triggered detail=trigger: NullReferenceException: Object reference not set to an instance of an object
+[LOG 13:20:06.965] [Parsek][VERBOSE][PartParity] case advancedcanard--default--explode--air--cbf1cff7: status=burst-not-triggered part=AdvancedCanard skin=<default>/<none> snapshotSkin=<none> ghostSkin=<none> skinModule=<none> alongTrack=0m views=0 seedEvents=0 seedApplied=0 maxShapeBlob=- maxColorBlob=- minIou=- ghostRootOffset=- logLines=67
+[LOG 13:20:06.968] [Parsek][INFO][RecState] [#6][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=16.7 scene=FLIGHT
+[LOG 13:20:06.969] [Parsek][INFO][RecState] [#7][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=16.7 scene=FLIGHT
+[LOG 13:20:06.969] [Parsek][INFO][RecState] [#8][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=16.7 scene=FLIGHT
+[LOG 13:20:06.969] [Parsek][INFO][RecState] [#9][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=16.7 scene=FLIGHT
+[LOG 13:20:06.969] [Parsek][VERBOSE][TransientFx] Transient FX record disarmed after 0 entries
+[LOG 13:20:06.969] [Parsek][VERBOSE][PartParity] case advancedcanard--default--explode--air--cbf1cff7: burst release killed=4 partPids=4
+[LOG 13:20:06.970] [Parsek][VERBOSE][PartParity] case advancedcanard--default--explode--air--cbf1cff7: burst release killed=0 partPids=4
+[LOG 13:20:06.971] [Parsek][INFO][PartParity] wave 1: cases=1 setupFaults=1 stillAnimating=0 wall=6.2s first=advancedcanard--default--explode--air--cbf1cff7 solo=false elapsed=6.2s
+[LOG 13:20:06.971] [Parsek][VERBOSE][PartParity] wave 2: kind=p9:burst flow=burst cases=1 first=advancedcanard--default--puff--air--e01c0413
+[LOG 13:20:06.972] [Parsek][INFO][PartParity] capture: tile=128 msaa.antiAliasing=4 msaaCreated=True resolveCreated=True gfx=Direct3D11 msaaTex=1
+[LOG 13:20:06.972] [Parsek][INFO][PartParity] burst spawn advancedcanard--default--puff--air--e01c0413: family=burst-custom state=puff trials=4 standIn=puff potential=0.1 stack=0 tile=128 bins=16 control=-
+[LOG 13:20:08.483] [Parsek][VERBOSE][TransientFx] Transient FX record armed
+[LOG 13:20:08.483] [Parsek][VERBOSE][PartParity] case advancedcanard--default--puff--air--e01c0413: burst trials prepared ghosts=0 preexistingFx=0 recordArmedHere=true
+[LOG 13:20:08.501] [Parsek][WARN][PartParity] case advancedcanard--default--puff--air--e01c0413: trigger: NullReferenceException: Object reference not set to an instance of an object
+[LOG 13:20:08.792] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 13:20:12.571] [Parsek][INFO][PartParity] burst case advancedcanard--default--puff--air--e01c0413: captured frames=231 bins=16 realTagged=0 ghostTagged=0 stray=0 realBlasts=0 ghostBlasts=0 ghostEvent=<none> status=burst-not-triggered
+[LOG 13:20:12.647] [Parsek][WARN][PartParity] case advancedcanard--default--puff--air--e01c0413: setup fault burst-not-triggered detail=trigger: NullReferenceException: Object reference not set to an instance of an object
+[LOG 13:20:12.647] [Parsek][VERBOSE][PartParity] case advancedcanard--default--puff--air--e01c0413: status=burst-not-triggered part=AdvancedCanard skin=<default>/<none> snapshotSkin=<none> ghostSkin=<none> skinModule=<none> alongTrack=0m views=0 seedEvents=0 seedApplied=0 maxShapeBlob=- maxColorBlob=- minIou=- ghostRootOffset=- logLines=7
+[LOG 13:20:12.648] [Parsek][VERBOSE][TransientFx] Transient FX record disarmed after 0 entries
+[LOG 13:20:12.648] [Parsek][INFO][PartParity] wave 2: cases=1 setupFaults=1 stillAnimating=0 wall=5.7s first=advancedcanard--default--puff--air--e01c0413 solo=false elapsed=11.9s
+[LOG 13:20:12.648] [Parsek][VERBOSE][PartParity] wave 3: kind=p9:burst flow=burst cases=1 first=cargostorageunit--default--explode--air--69788d0d
+[LOG 13:20:12.648] [Parsek][INFO][PartParity] capture: tile=128 msaa.antiAliasing=4 msaaCreated=True resolveCreated=True gfx=Direct3D11 msaaTex=1
+[LOG 13:20:12.648] [Parsek][VERBOSE][PartParity] case cargostorageunit--default--explode--air--69788d0d: authored burst trial 0 part=CargoStorageUnit parts=1
+[LOG 13:20:12.648] [Parsek][VERBOSE][Spawner] SpawnAtPosition: determined sit=FLYING (alt=1600, speed=175.4, orbitalSpeed=2422.9, overWater=False)
+[LOG 13:20:12.648] [Parsek][VERBOSE][Spawner] Spawn rotation prep (SpawnAtPosition): body=Kerbin frame=surface-relative(format-v0) -> ProtoVessel.rot (KSP loads as vessel.srfRelRotation; no body multiply) srfRel=0.701309025,0.095033735,0.0952045843,-0.700050235 bodyRot=0,-0.939240038,0,-0.343261003 rot=0.701309025,0.095033735,0.0952045843,-0.700050235
+[LOG 13:20:12.649] [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=22.28 |worldPos|=1539.9 |bodyRelPos|=601600.0 |bodyPos|=600074.6 |vel|=175.41
+[LOG 13:20:12.649] [Parsek][VERBOSE][Spawner] Crew dedup: checked 0 crew against 1 existing - no duplicates
+[LOG 13:20:12.649] [Parsek][INFO][VesselNames] Link added: kind=Spawn guid=f18d3d923d0d4af9bdc336b9a2f7933c -> 306cb519deb5435ab52f456e83e2bf08 reason=spawn rec=<none> links=5
+[LOG 13:20:12.649] [Parsek][VERBOSE][Spawner] Regenerated vessel identity: pid=f18d3d923d0d4af9bdc336b9a2f7933c, 1 part(s) regenerated, 1 old PID(s) cleaned from registry, dockRefsRemapped=0 seatOccupantsRemapped=0 dockAbsorbRowsCopied=0
+[LOG 13:20:12.649] [Parsek][INFO][Spawner] Spawn prep: added 4 missing node(s) to snapshot
+[LOG 13:20:12.650] [Parsek][INFO][Spawner] SpawnAtPosition: vessel spawned (sit=FLYING, pid=603124399, body=Kerbin, alt=1600m) storedParts=0
+[LOG 13:20:12.650] [Parsek][INFO][PartParity] spawn cargostorageunit--default--explode--air--69788d0d-t0: pid=603124399 in the air lat=-0.10293 lon=-74.53840 alt=1600m descent=0.0m/s orbitalSpeed=175.4m/s body=Kerbin
+[LOG 13:20:12.650] [Parsek][VERBOSE][PartParity] case cargostorageunit--default--explode--air--69788d0d: authored burst trial 1 part=CargoStorageUnit parts=1
+[LOG 13:20:12.650] [Parsek][VERBOSE][Spawner] SpawnAtPosition: determined sit=FLYING (alt=1600, speed=175.4, orbitalSpeed=2422.9, overWater=False)
+
+=== 2. first dust 'engine not lit' (KSP.log lines 16587-16666) ===
+[LOG 13:23:59.206] [Parsek][INFO][PartParity] case clydesdale--default--dust-high--ground--4651d9a1: dust warm capped after 16.01 s coverage=0..78 life=15.00 s signal=coverage
+[LOG 13:23:59.216] Look rotation viewing vector is zero
+[LOG 13:23:59.231] Look rotation viewing vector is zero
+[LOG 13:23:59.249] Look rotation viewing vector is zero
+[LOG 13:23:59.266] Look rotation viewing vector is zero
+[LOG 13:23:59.283] Look rotation viewing vector is zero
+[LOG 13:23:59.301] Look rotation viewing vector is zero
+[LOG 13:23:59.317] Look rotation viewing vector is zero
+[LOG 13:23:59.332] Look rotation viewing vector is zero
+[LOG 13:23:59.351] Look rotation viewing vector is zero
+[LOG 13:23:59.367] Look rotation viewing vector is zero
+[LOG 13:23:59.385] Look rotation viewing vector is zero
+[LOG 13:23:59.402] Look rotation viewing vector is zero
+[LOG 13:23:59.419] Look rotation viewing vector is zero
+[LOG 13:23:59.435] Look rotation viewing vector is zero
+[LOG 13:23:59.451] Look rotation viewing vector is zero
+[LOG 13:23:59.469] Look rotation viewing vector is zero
+[LOG 13:23:59.476] [Parsek][INFO][PartParity] case clydesdale--default--dust-low--ground--0d80cbfd: dust warm capped after 16.24 s coverage=46648..62927 life=15.00 s signal=coverage
+[LOG 13:23:59.723] Look rotation viewing vector is zero
+[LOG 13:23:59.835] Look rotation viewing vector is zero
+[LOG 13:23:59.968] Look rotation viewing vector is zero
+[LOG 13:24:00.095] Look rotation viewing vector is zero
+[LOG 13:24:00.203] Look rotation viewing vector is zero
+[LOG 13:24:00.326] Look rotation viewing vector is zero
+[LOG 13:24:00.448] Look rotation viewing vector is zero
+[LOG 13:24:00.572] Look rotation viewing vector is zero
+[LOG 13:24:00.681] Look rotation viewing vector is zero
+[LOG 13:24:00.800] Look rotation viewing vector is zero
+[LOG 13:24:00.939] Look rotation viewing vector is zero
+[LOG 13:24:01.065] Look rotation viewing vector is zero
+[LOG 13:24:01.170] Look rotation viewing vector is zero
+[LOG 13:24:01.282] Look rotation viewing vector is zero
+[LOG 13:24:01.390] Look rotation viewing vector is zero
+[LOG 13:24:01.555] [Parsek][INFO][PartParity] dust case clydesdale--default--dust-high--ground--4651d9a1: rounds=16 hits=16 misses=0 surface=terrain entries=6 warmup=16.01s plateau=capped holdDrift=0.000m status=ok
+[LOG 13:24:01.633] [Parsek][VERBOSE][PartParity] case clydesdale--default--dust-high--ground--4651d9a1: status=ok part=Clydesdale skin=<default>/<none> snapshotSkin=<none> ghostSkin=<none> skinModule=<none> alongTrack=0m views=0 seedEvents=0 seedApplied=0 maxShapeBlob=- maxColorBlob=- minIou=- ghostRootOffset=- logLines=0
+[LOG 13:24:01.702] [Parsek][INFO][PartParity] dust case clydesdale--default--dust-low--ground--0d80cbfd: rounds=16 hits=16 misses=0 surface=terrain entries=6 warmup=16.24s plateau=capped holdDrift=0.000m status=ok
+[LOG 13:24:01.774] [Parsek][VERBOSE][PartParity] case clydesdale--default--dust-low--ground--0d80cbfd: status=ok part=Clydesdale skin=<default>/<none> snapshotSkin=<none> ghostSkin=<none> skinModule=<none> alongTrack=0m views=0 seedEvents=0 seedApplied=0 maxShapeBlob=- maxColorBlob=- minIou=- ghostRootOffset=- logLines=0
+[LOG 13:24:01.845] [Parsek][INFO][PartParity] dust case clydesdale--default--dust-water--ground--dcb89b9e: rounds=16 hits=0 misses=16 surface=none entries=6 warmup=10.95s plateau=settled holdDrift=0.000m status=dust-no-stock-hit
+[LOG 13:24:01.919] [Parsek][WARN][PartParity] case clydesdale--default--dust-water--ground--dcb89b9e: setup fault dust-no-stock-hit detail=stock's raycast hit nothing in 16 sample(s)
+[LOG 13:24:01.919] [Parsek][VERBOSE][PartParity] case clydesdale--default--dust-water--ground--dcb89b9e: status=dust-no-stock-hit part=Clydesdale skin=<default>/<none> snapshotSkin=<none> ghostSkin=<none> skinModule=<none> alongTrack=0m views=0 seedEvents=0 seedApplied=0 maxShapeBlob=- maxColorBlob=- minIou=- ghostRootOffset=- logLines=0
+[LOG 13:24:01.920] [Parsek][WARN][PartParity] case jetengine--default--dust-high--ground--43000e16: setup fault state-timeout detail=engine not lit 5 s after the press
+[LOG 13:24:01.920] [Parsek][VERBOSE][PartParity] case jetengine--default--dust-high--ground--43000e16: status=state-timeout part=JetEngine skin=<default>/<none> snapshotSkin=<none> ghostSkin=<none> skinModule=<none> alongTrack=0m views=0 seedEvents=0 seedApplied=0 maxShapeBlob=- maxColorBlob=- minIou=- ghostRootOffset=- logLines=0
+[LOG 13:24:01.921] [Parsek][INFO][RecState] [#162][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=244.1 scene=FLIGHT
+[LOG 13:24:01.921] [Parsek][INFO][RecState] [#163][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=244.1 scene=FLIGHT
+[LOG 13:24:01.921] [Parsek][INFO][RecState] [#164][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=244.1 scene=FLIGHT
+[LOG 13:24:01.921] [Parsek][INFO][RecState] [#165][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=244.1 scene=FLIGHT
+[LOG 13:24:01.922] [Parsek][INFO][PartParity] wave 1: cases=4 setupFaults=2 stillAnimating=0 wall=20.3s first=clydesdale--default--dust-high--ground--4651d9a1 solo=false elapsed=20.3s
+[LOG 13:24:01.922] [Parsek][VERBOSE][PartParity] wave 2: kind=p9:dust flow=dust cases=4 first=jetengine--default--dust-low--ground--98eecdec
+[LOG 13:24:01.922] [Parsek][VERBOSE][Spawner] SpawnAtPosition: determined sit=FLYING (alt=68, speed=175.0, orbitalSpeed=2426.0, overWater=False)
+[LOG 13:24:01.922] [Parsek][VERBOSE][Spawner] Spawn rotation prep (SpawnAtPosition): body=Kerbin frame=surface-relative(format-v0) -> ProtoVessel.rot (KSP loads as vessel.srfRelRotation; no body multiply) srfRel=0.701405227,0.095020622,0.0952176452,-0.699953794 bodyRot=0,-0.939240038,0,-0.343261003 rot=0.701405287,0.0950206295,0.0952176526,-0.699953854
+[LOG 13:24:01.922] [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=244.10 |worldPos|=302.3 |bodyRelPos|=600067.9 |bodyPos|=600074.6 |vel|=174.96
+[LOG 13:24:01.922] [Parsek][VERBOSE][Spawner] Crew dedup: checked 0 crew against 1 existing - no duplicates
+[LOG 13:24:01.923] [Parsek][INFO][VesselNames] Link added: kind=Spawn guid=b4a4b322b7d541db943c6bafdb83441d -> e47b7d08541a4d2faf49494da552ac4e reason=spawn rec=<none> links=161
+[LOG 13:24:01.923] [Parsek][VERBOSE][Spawner] Regenerated vessel identity: pid=b4a4b322b7d541db943c6bafdb83441d, 1 part(s) regenerated, 1 old PID(s) cleaned from registry, dockRefsRemapped=0 seatOccupantsRemapped=0 dockAbsorbRowsCopied=0
+[LOG 13:24:01.923] [Parsek][INFO][Spawner] Spawn prep: added 4 missing node(s) to snapshot
+[LOG 13:24:01.924] [Parsek][INFO][Spawner] SpawnAtPosition: vessel spawned (sit=FLYING, pid=1405754048, body=Kerbin, alt=68m) storedParts=0
+[LOG 13:24:01.924] [Parsek][INFO][PartParity] spawn jetengine--default--dust-low--ground--98eecdec: pid=1405754048 in the air lat=-0.11869 lon=-74.53840 alt=68m descent=0.0m/s orbitalSpeed=175.0m/s body=Kerbin
+[LOG 13:24:01.924] [Parsek][INFO][PartParity] dust spawn jetengine--default--dust-low--ground--98eecdec: pid=1405754048 slot=0/4 surface=terrain lat=-0.11869 lon=-74.53840 ground=63.7m ghostGround=62.7m height=4.0m nozzleUp=-0.28m root=67.9m reach=20.0m thrustTransform=thrustTransform
+[LOG 13:24:01.924] [Parsek][VERBOSE][Spawner] SpawnAtPosition: determined sit=FLYING (alt=8, speed=174.9, orbitalSpeed=2426.1, overWater=True)
+[LOG 13:24:01.924] [Parsek][VERBOSE][Spawner] Spawn rotation prep (SpawnAtPosition): body=Kerbin frame=surface-relative(format-v0) -> ProtoVessel.rot (KSP loads as vessel.srfRelRotation; no body multiply) srfRel=0.701158106,0.0961991474,0.0963745192,-0.69988209 bodyRot=0,-0.939240038,0,-0.343261003 rot=0.701158166,0.0961991549,0.0963745266,-0.69988215
+[LOG 13:24:01.924] [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=244.10 |worldPos|=2204.3 |bodyRelPos|=600008.3 |bodyPos|=600074.6 |vel|=174.94
+[LOG 13:24:01.924] [Parsek][VERBOSE][Spawner] Crew dedup: checked 0 crew against 1 existing - no duplicates
+[LOG 13:24:01.924] [Parsek][INFO][VesselNames] Link added: kind=Spawn guid=0c2e80dcfa6e450ebf7968cceb893bcc -> 6c42b108df754ef3bd3258ded4102a6b reason=spawn rec=<none> links=162
+[LOG 13:24:01.924] [Parsek][VERBOSE][Spawner] Regenerated vessel identity: pid=0c2e80dcfa6e450ebf7968cceb893bcc, 1 part(s) regenerated, 1 old PID(s) cleaned from registry, dockRefsRemapped=0 seatOccupantsRemapped=0 dockAbsorbRowsCopied=0
+[LOG 13:24:01.924] [Parsek][INFO][Spawner] Spawn prep: added 4 missing node(s) to snapshot
+[LOG 13:24:01.926] [Parsek][INFO][Spawner] SpawnAtPosition: vessel spawned (sit=FLYING, pid=97242687, body=Kerbin, alt=8m) storedParts=0
+[LOG 13:24:01.926] [Parsek][INFO][PartParity] spawn jetengine--default--dust-water--ground--f51dcc5f: pid=97242687 in the air lat=-0.10436 lon=-74.34742 alt=8m descent=0.0m/s orbitalSpeed=174.9m/s body=Kerbin
+[LOG 13:24:01.926] [Parsek][INFO][PartParity] dust spawn jetengine--default--dust-water--ground--f51dcc5f: pid=97242687 slot=1/4 surface=water lat=-0.10436 lon=-74.34742 ground=0.0m ghostGround=0.0m height=8.0m nozzleUp=-0.28m root=8.3m reach=20.0m thrustTransform=thrustTransform
+[LOG 13:24:01.926] [Parsek][VERBOSE][Spawner] SpawnAtPosition: determined sit=FLYING (alt=123, speed=175.0, orbitalSpeed=2425.9, overWater=False)
+[LOG 13:24:01.926] [Parsek][VERBOSE][Spawner] Spawn rotation prep (SpawnAtPosition): body=Kerbin frame=surface-relative(format-v0) -> ProtoVessel.rot (KSP loads as vessel.srfRelRotation; no body multiply) srfRel=0.701230228,0.0950444341,0.0951939076,-0.700129151 bodyRot=0,-0.939240038,0,-0.343261003 rot=0.701230228,0.0950444341,0.0951939076,-0.700129151
+[LOG 13:24:01.926] [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=244.10 |worldPos|=220.8 |bodyRelPos|=600123.3 |bodyPos|=600074.6 |vel|=174.98
+[LOG 13:24:01.926] [Parsek][VERBOSE][Spawner] Crew dedup: checked 0 crew against 1 existing - no duplicates
+[LOG 13:24:01.926] [Parsek][INFO][VesselNames] Link added: kind=Spawn guid=d67778a51352464dbc0c09f8e649ba2d -> 9fe4b5c13197420a86ba100d99d52530 reason=spawn rec=<none> links=163
+[LOG 13:24:01.926] [Parsek][VERBOSE][Spawner] Regenerated vessel identity: pid=d67778a51352464dbc0c09f8e649ba2d, 1 part(s) regenerated, 1 old PID(s) cleaned from registry, dockRefsRemapped=0 seatOccupantsRemapped=0 dockAbsorbRowsCopied=0
+[LOG 13:24:01.926] [Parsek][INFO][Spawner] Spawn prep: added 4 missing node(s) to snapshot
+[LOG 13:24:01.927] [Parsek][INFO][Spawner] SpawnAtPosition: vessel spawned (sit=FLYING, pid=1372237177, body=Kerbin, alt=123m) storedParts=0
+[LOG 13:24:01.927] [Parsek][INFO][PartParity] spawn liquidengineke-1--full--dust-high--ground--ddc0b9b3: pid=1372237177 in the air lat=-0.09004 lon=-74.53840 alt=123m descent=0.0m/s orbitalSpeed=175.0m/s body=Kerbin
+[LOG 13:24:01.927] [Parsek][INFO][PartParity] dust spawn liquidengineke-1--full--dust-high--ground--ddc0b9b3: pid=1372237177 slot=2/4 surface=terrain lat=-0.09004 lon=-74.53840 ground=64.7m ghostGround=62.4m height=56.0m nozzleUp=-2.53m root=123.3m reach=80.0m thrustTransform=thrustTransform
+[LOG 13:24:01.927] [Parsek][VERBOSE][Spawner] SpawnAtPosition: determined sit=FLYING (alt=83, speed=175.0, orbitalSpeed=2425.9, overWater=False)
+[LOG 13:24:01.927] [Parsek][VERBOSE][Spawner] Spawn rotation prep (SpawnAtPosition): body=Kerbin frame=surface-relative(format-v0) -> ProtoVessel.rot (KSP loads as vessel.srfRelRotation; no body multiply) srfRel=0.701142728,0.0950563326,0.0951820463,-0.70021683 bodyRot=0,-0.939240038,0,-0.343261003 rot=0.701142728,0.0950563326,0.0951820463,-0.70021683
