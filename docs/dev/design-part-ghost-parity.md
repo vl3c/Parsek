@@ -4424,8 +4424,8 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   velocity camera built as stock's, boxed on the ghost's bounds, into that ghost's own depth
   render texture at stock's `FXCamera.occlusionMapResolution`, 256 / 512 / 1024 / 2048 by
   `AERO_FX_QUALITY`; pooled by drawing slot, a slot idle 5 s is released, a size change releases
-  them all) and submits each visible ghost mesh with `Graphics.DrawMesh` on that layer and that
-  camera, with the ghost's own materials and a `MaterialPropertyBlock` carrying every value stock
+  them all) and, last in that drive (after the cameras are set, "After flight 2" below), submits
+  each visible ghost mesh with `Graphics.DrawMesh` on that layer and that camera, with the ghost's own materials and a `MaterialPropertyBlock` carrying every value stock
   sets as a global. The variant: the draw does not use the replacement shader as its material;
   the FX copy carries `SetReplacementShader(ReplacementShaders[lod], "RenderType")`, so Unity
   picks the subshader from each part material's own `RenderType` tag, opaque and transparent
@@ -4605,6 +4605,44 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
     (`DepthSize` square) and the report; then grab one frame each in `SanityUnlit` and
     `NoSceneDepth` (`fxr-diag-<mark>-sanity`, `-nodepth`), and set `Normal` again. The copies
     need no rig change.
+- After flight 2 (2026-11-28, `PPS-20c` run `2026-11-28_0126`, PASS, rig 218497290 over
+  ab72f0e9d; evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after-diag/` on
+  `p9-y1-flight-after-diag`). Hypothesis 1's first half, 2 and 3 are ruled out: `fxCopyRenders=`
+  climbs with `framesCopiesOn=` (3560 against 3556), the FX copy sits at depth 3.02 after stock's
+  3, clear `Nothing`, mask `0x40`, target the screen; the offscreen `fx` capture is a stock-like
+  orange shell (covered 1.78 %, maxRGB 255,224,86), `plain` the probe's silhouette in magenta at
+  the right place, the depth map one disc. On screen neither `SanityUnlit` (magenta) nor
+  `NoSceneDepth` (flame) shows anything. So the material, the values, the meshes, their matrices
+  and the depth map are right, and the copy renders, but it renders without our meshes.
+  - What differs between the two paths is only WHEN the submission is made. The capture submits
+    the ghost and calls `fxCamera.Render()` at once. The per-frame path submitted every sheath
+    (`Graphics.DrawMesh(..., camera: fxCamera, ...)`) inside the ghost loop and only then ran
+    `DriveCameras`: a `CopyFrom` of stock's camera onto each copy and two depth writes every
+    frame (`CopyFrom` set the copy's depth back to stock's 3, then 3.02 was written again), plus
+    the replacement set or reset. A submission for one camera is held by that camera until it
+    renders; the reading is that the per-frame `CopyFrom` or depth re-sort discards what the
+    camera holds. Not provable offline: `Camera.CopyFrom`, `Camera.set_depth` and
+    `Graphics.Internal_DrawMesh` are `internalcall`s in the 2019.4 `UnityEngine.CoreModule.dll`
+    (no managed body), and the Unity manual says only that `DrawMesh` "submits" the mesh for the
+    frame. The one measured fact is Parsek's own: U5 (20a) saw a `DrawMesh` from `LateUpdate`
+    reach the end-of-frame render, with nothing written to that camera in between, so
+    the `LateUpdate` submission itself is sound and the writes after it are what changed. The
+    matrix, layer and block are the same on both paths: the ghost positions are final
+    by our `LateUpdate` (execution order 10000; the `CameraPreCull` re-apply skips every entry,
+    `ShouldProcessGhostPositionReapply`), the layer is 6 in the copy's mask, no shadows either
+    way, and the property block is the same slot (none with the sanity material).
+  - Fix: the drive prepares every sheath first (depth map render, block, globals), then sets the
+    cameras, then runs a rig capture, and submits LAST in the frame (`SubmitPrepared`, the frame
+    line's `submitted=`), so no camera write or manual render comes between a submission and the
+    copy's own render. The per-frame `CopyFrom` is gone (the copies take stock's settings once at
+    build and follow `Camera 00` as its children; per frame only field of view, far clip, the
+    replacement and the copy's mask are set), and a depth is written only when it changes
+    (`GhostAeroFx.CameraDepthNeedsWrite`). `SanityUnlit` resets the replacement before the
+    submissions with no `CopyFrom` after it, so the sanity pass is replacement-free. Not chosen:
+    a `CommandBuffer` on the copy, because a replacement shader does not apply to command buffer
+    draws (stock's look is its replacement pass), and submitting in the copy's `onPreCull`,
+    because nothing writes the copies after our `LateUpdate`. The rig needs no change: its
+    capture, sanity and nodepth shots and the normal ghost shots read the fix as they stand.
 
 X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
 driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and
@@ -5180,11 +5218,11 @@ Rev 1 estimated about 99 / 110 orbit cases (about 53 / 64 of P6's motion familie
 
 | Lane | Install | Cases (motion + controls) | Sweep estimate | Steps (480 s, +50 %) | `budgetSeconds` |
 | --- | --- | --- | --- | --- | --- |
-| PP-14 (new, `pp14`), orbit | stock-minimal | 54 + 13 servos + 24 control surfaces = 91 (counted by M1, H.1); 6 | about 515 s | 3 | 2400 |
-| PP-15 (new, `pp15`), orbit | modded-compat | 64 + 13 + 24 = 101 (M1); 6 | about 565 s | 3 | 2400 |
+| PP-14 (new, `pp14`), orbit | stock-minimal | 54 + 13 servos + 24 control surfaces = 91 (counted by M1, H.1; 90 live, see below); 6 | about 515 s (measured 362 s) | 3 (2 as flown) | 2400 (1800 as flown) |
+| PP-15 (new, `pp15`), orbit | modded-compat | 64 + 13 + 24 = 101 (M1; 100 live); 6 | about 565 s (measured 444 s) | 3 (2 as flown) | 2400 (1800 as flown) |
 | PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s after the press, full 4.9 to 13 s, D.4) | 1 | 3000 (from 2400) |
 
-Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three `op=run
+Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three (two as flown) `op=run
 motion=all controls=true maxSeconds=480`, quit without saving; tier `operator`, report-only,
 `[retry] policy = "none"`, one slot each, on the installs PP-1 to PP-4 use. The orbit lanes are new
 lanes and not a label in PP-3 / PP-4, because those are ARMED and the P5 gate reds a label with no
@@ -5199,6 +5237,17 @@ models. Each lane's first flight is a `limit=20` reading flight and its step cou
 written as PP-11 / PP-12, move up when P9 builds them; PP-12 and PP-13 are left to them, and
 PP-14 and PP-15 are free on `origin/main` and on every remote branch (re-checked 2026-11-27). Expected wall per full pass: about 660 s (PP-14), 715 s (PP-15), plus about 90 s on
 each of PP-5 / PP-6.
+
+As flown (2026-11-27 / 28, main 05c456742, reference DLL; report-only): the live plans hold 90 / 100
+orbit cases, one fewer than M1's fixture count, because #2862 made the orbital scanner (an animation
+group with no deploy clip) a `no-animation` exclusion. PP-14 `2026-11-27_2359` PASS: the first step
+finished the sweep at 362.2 s, the others answered `done=true` in 0.4 s, 456 s wall. PP-15
+`2026-11-28_0007` PASS: the first step hit its 480 s box at 421.7 s with 95 of 100 cases, the second
+took 22.1 s, the third 0.4 s, 535 s wall. So both run two steps (PP-14's sweep fits one with 118 s to
+spare and the second is D.8's margin; PP-15 needs both) and `budgetSeconds` 1800 (the step budgets
+sum to 1620, PP-3's 1800). The air labels ran alone on motion-label-only local copies (`pp5mo`
+`2026-11-27_2306`, 85 s; `pp6mo` `_2308`, 90 s), inside H.4's estimate; PP-5 / PP-6 keep their one
+step and 3000. Verdicts and findings: `autotest-status.md` and todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26.
 
 Air risk: a full case falls for the semi wait plus a window of up to about 27 s from 1600 m; P6's
 300 m terrain guard ends a case `died-settling`. If the reading flight shows it, the motion label
@@ -5321,8 +5370,8 @@ subsection.
 | M3 (BUILT 2026-11-27, awaiting the dev-install run) | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file. As built also: `PartParityMotionRules.cs` (the late judge's `LateMustFailOnLag` and the `--normal` route suffix, both asked for by M4's derivation and mirrored there), `PartParityJson.cs` (two writer helpers, no key change), `PartParityStateDriver.cs` and `FlightRecorder.cs` (visibility only), xUnit `PartParityMotionPlanTests.cs` / `PartParityMotionMetricsTests.cs`; the motion acceptance step rides the existing `SweepStateAcceptanceSet` cell | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 (DONE 2026-11-27) | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before. BUILT (H.3 "Built"): a synthetic motion sidecar + atlas builder in the tests; every control's perturbation caught (and an unperturbed one bad); mutated atlas tiles and tampered arrays INVALID(parity-instrument); ten legacy stowed / state / FX / burst sweeps hash to their pre-M4 digests. For the C# side: `JudgeGhostLate` must require the lag fail only when the 1.0 s shift is past the line (its xUnit cell for a 10 s motion expects `bad`), and M3 writes the slow / late normal route as `<controlId>--normal` |
 | M5 (DONE 2026-11-27) | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles. BUILT (H.5 "Built"): over M4's synthetic motion sweep, the rows equal partparity's `judge_motion`; the node page tests read every crop of a case from its one `--f` at the scrubbed, ticked and wrapped frame, the clock's delays (real offsets, 0.25x, the 1 s hold), reduced motion, the chart's lines, marks, lag and frame line; the APNG (each frame rebuilt and read by `gui_mirror.read_png`) and the GIF (a test-side LZW decoder) decode to the atlas tiles; three legacy sites (stowed, state, FX) keep their pre-M5 `data.js` and built-DOM digests. For M3: the viewer reads `motion` (the M4 keys), `motionAtlas {file, tile, rows, cols}` with rows `real:` / `ghost:` / `ghost-matched:<view>` and one column per frame, `stateProof.events`, and the normal routes under `<controlId>--normal` |
-| M6 (BUILT 2026-11-27, NOT FLOWN) | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed. BUILT: `PP-14-part-parity-motion-stock` / `PP-15-part-parity-motion-modded` (tag `pending-flight`, H.4's steps and budget), `PartParityMotionLaneShapeTests` (the lane shapes, the log pins, the `motion cases:` literal; its runner half arms itself when M3's `PartParityMotionDriver.cs` is in the tree, so M3 must log `PartParityMotionRules.FormatCounts` on the PartParity tag at Info, as the state and FX counts are), `REVIEWED_UNTAGGED` rows, the status rows. Owed: the flights, after M3 |
-| M7 (lane half BUILT 2026-11-27, NOT FLOWN) | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames. BUILT with M6: the third label in both specs (an air reset and one `contexts=air motion=all` step, LAST in the lane, budget 2400 -> 3000, its own step, applier and `motion cases:` pins; report-only, so no P5 `no-baseline`), the air half of `PartParityMotionLaneShapeTests`, the two lane rows. Owed: the dev-install run and the flights, after M3 |
+| M6 (DONE 2026-11-28) | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed. BUILT: `PP-14-part-parity-motion-stock` / `PP-15-part-parity-motion-modded` (tag `pending-flight`, H.4's steps and budget), `PartParityMotionLaneShapeTests` (the lane shapes, the log pins, the `motion cases:` literal; its runner half arms itself when M3's `PartParityMotionDriver.cs` is in the tree, so M3 must log `PartParityMotionRules.FormatCounts` on the PartParity tag at Info, as the state and FX counts are), `REVIEWED_UNTAGGED` rows, the status rows. FLOWN: reading flights `limit=20` (`2026-11-27_2159` / `_2202` INVALID, fixed by #2862; `_2258` / `_2302` INVALID, fixed by #2864; `_2350` / `_2353` PASS), then full PP-14 `2026-11-27_2359` and PP-15 `2026-11-28_0007` PASS (controls ok, recompute 0, every sidecar complete); steps 3 -> 2, budget 2400 -> 1800 from their walls (H.4 "As flown"); tag `flown` |
+| M7 (lane half BUILT 2026-11-27, label READ 2026-11-27) | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames. BUILT with M6: the third label in both specs (an air reset and one `contexts=air motion=all` step, LAST in the lane, budget 2400 -> 3000, its own step, applier and `motion cases:` pins; report-only, so no P5 `no-baseline`), the air half of `PartParityMotionLaneShapeTests`, the two lane rows. READ: each label alone on a motion-label-only local copy, `pp5mo` `2026-11-27_2306` and `pp6mo` `_2308` PASS (controls ok, 10 chute fails each on the expected snap); the committed PP-5 / PP-6 have not flown whole with the label |
 
 Order: M0; then M1 and M2 together; M3 and M4 together (M4 on M1's synthetic helpers); M5 after
 M4; M6 after M3 and M4; M7 after M3 (its lanes after M6). The C# pieces get the end-of-task review;

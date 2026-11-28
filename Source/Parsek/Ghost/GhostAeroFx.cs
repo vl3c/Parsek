@@ -203,6 +203,14 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether a copy camera's depth must be written: only when it differs from the wanted
+        /// value (a NaN on either side counts as different). Unity orders cameras by depth, so a
+        /// depth write can re-order the camera; the renderer writes it only on a change, never
+        /// every frame.
+        /// </summary>
+        internal static bool CameraDepthNeedsWrite(float current, float wanted) => !(current == wanted);
+
+        /// <summary>
         /// Whether a renderer on this layer is one stock's FX or velocity camera could draw.
         /// </summary>
         internal static bool LayerSeenByStockFx(int layer, int stockFxMask, int stockVelocityMask)

@@ -284,6 +284,28 @@ namespace Parsek.Tests
             if (!float.IsNaN(fxCam)) Assert.True(got > fxCam);
         }
 
+        [Theory]
+        [InlineData(3.02f, 3.02f, false)]
+        [InlineData(3f, 3.02f, true)]
+        [InlineData(3.02f, 3.01f, true)]
+        [InlineData(float.NaN, 3.02f, true)]
+        [InlineData(3.02f, float.NaN, true)]
+        [InlineData(float.NaN, float.NaN, true)]
+        public void CameraDepthNeedsWrite_OnlyOnAChange(float current, float wanted, bool expected)
+        {
+            Assert.Equal(expected, GhostAeroFx.CameraDepthNeedsWrite(current, wanted));
+        }
+
+        [Fact]
+        public void CameraDepthNeedsWrite_FalseForTheValueItWrote()
+        {
+            // The copy's per-frame depth is derived again every frame; a stable stock depth must
+            // never cause a second write.
+            float written = GhostAeroFx.CopyCameraDepth(2f, 3f) + GhostAeroFx.CopyCameraDepthStep;
+            Assert.False(GhostAeroFx.CameraDepthNeedsWrite(written,
+                GhostAeroFx.CopyCameraDepth(2f, 3f) + GhostAeroFx.CopyCameraDepthStep));
+        }
+
         private sealed class FakeRenderer
         {
             public bool Off;

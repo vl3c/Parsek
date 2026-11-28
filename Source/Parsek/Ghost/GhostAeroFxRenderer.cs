@@ -74,6 +74,18 @@ namespace Parsek
         private int depthPoolResolution;
         private readonly List<MaterialPropertyBlock> blocks = new List<MaterialPropertyBlock>();
 
+        // The sheaths a frame's decisions chose, submitted only once the cameras are set.
+        private struct PreparedSheath
+        {
+            public Offer offer;
+            public int slot;
+            public AeroFxDrawValues values;
+            public int lod;
+            public float box;
+        }
+        private readonly List<PreparedSheath> prepared = new List<PreparedSheath>();
+        private int lastSubmitted;
+
         private AerodynamicsFX stockFx;
         private FXCamera stockCamera;
         private Camera stockCameraComponent;
@@ -571,6 +583,7 @@ namespace Parsek
                 offers.Clear();
                 maskGhosts.Clear();
                 mask.ClearCandidates();
+                prepared.Clear();
                 SetCameras(false);
                 SetLight(false, int.MinValue);
                 FinishCapture(null, "frame failed: " + e.GetType().Name);
@@ -582,6 +595,7 @@ namespace Parsek
         private void DriveFrame()
         {
             int frame = Time.frameCount;
+            prepared.Clear();
             if (offersFrame != frame) offers.Clear();
             if (maskGhostsFrame != frame) maskGhosts.Clear();
             mask.ClearCandidates();
@@ -683,6 +697,9 @@ namespace Parsek
                 }
             }
             DrivePendingCapture(mainCamera, drawn, frame);
+            // Last, so no camera write or manual render of this frame can come after it.
+            lastSubmitted = drawn > 0 ? SubmitPrepared() : 0;
+            prepared.Clear();
             if (haveLight) DriveLight(lightOffer, lightBounds);
             else SetLight(false, int.MinValue);
             TrimDepthPool(drawn, now);
@@ -693,13 +710,13 @@ namespace Parsek
                 "Ghost aero FX frame: offers={0} drawn={1} outOfReach={2} isolated={3} other={4} " +
                 "light={5} reach={6:F0}m stockOn={7} ready={8} maskGhosts={9} maskRenderers={10} " +
                 "lastMasked={11} maskWriteFailures={12} depthMaps={13} depthRes={14} cpuMs={15:F3} " +
-                "fxCopyRenders={16} depthCopyRenders={17} framesCopiesOn={18} mode={19}",
+                "fxCopyRenders={16} depthCopyRenders={17} framesCopiesOn={18} mode={19} submitted={20}",
                 offers.Count, drawn, outOfReach, isolated, other,
                 haveLight ? "#" + lightOffer.recIdx.ToString(CultureInfo.InvariantCulture) : "none",
                 reach, stockOn, ready, maskedGhosts, mask.CandidateCount, mask.LastMaskedCount,
                 failedMaskWrites, depthPool.Count, depthPoolResolution,
                 frameWatch.Elapsed.TotalMilliseconds, fxCopyRenders, depthCopyRenders, framesCopiesOn,
-                diagMode), 5.0);
+                diagMode, lastSubmitted), 5.0);
             offers.Clear();
             maskGhosts.Clear();
         }
@@ -935,17 +952,37 @@ namespace Parsek
             }
 
             LogSheathMaterialsOnce(o);
-            int submitted = SubmitSheath(o, mpb,
-                GhostAeroFx.UsesReplacementShader(diagMode) ? null : SanityMaterial());
+            prepared.Add(new PreparedSheath { offer = o, slot = slot, values = v, lod = lod, box = box });
+            return true;
+        }
 
-            ParsekLog.VerboseRateLimited("ReentryFx", $"aero-sheath-{o.recIdx}", string.Format(
-                CultureInfo.InvariantCulture,
-                "Ghost #{0} sheath drawn: fx={1:F3} state={2:F2} submeshes={3} lod={4} alpha={5:F3} " +
-                "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m",
-                o.recIdx, o.fx, o.aeroState, submitted, lod,
-                GhostAeroFx.FxColorAlpha(v.Intensity, lod), v.Length, v.Color.r, v.Color.g, v.Color.b, box),
-                5.0);
-            return submitted > 0;
+        /// <summary>
+        /// Submits every sheath prepared this frame to the FX copy. It runs last in the frame's
+        /// drive, after the cameras are switched on and set (and after a rig capture), because a
+        /// <c>Graphics.DrawMesh</c> for one camera lives in that camera's own list until it renders,
+        /// and a submission made before the camera was switched on or re-sorted never reached the
+        /// screen (the 2026-11-28 diagnostic flight). Returns the submeshes submitted.
+        /// </summary>
+        private int SubmitPrepared()
+        {
+            int total = 0;
+            Material plain = GhostAeroFx.UsesReplacementShader(diagMode) ? null : SanityMaterial();
+            for (int i = 0; i < prepared.Count; i++)
+            {
+                PreparedSheath p = prepared[i];
+                int submitted = SubmitSheath(p.offer, blocks[p.slot], plain);
+                total += submitted;
+                AeroFxDrawValues v = p.values;
+                ParsekLog.VerboseRateLimited("ReentryFx", $"aero-sheath-{p.offer.recIdx}", string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Ghost #{0} sheath drawn: fx={1:F3} state={2:F2} submeshes={3} lod={4} alpha={5:F3} " +
+                    "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m mode={11}",
+                    p.offer.recIdx, p.offer.fx, p.offer.aeroState, submitted, p.lod,
+                    GhostAeroFx.FxColorAlpha(v.Intensity, p.lod), v.Length, v.Color.r, v.Color.g, v.Color.b,
+                    p.box, diagMode), 5.0);
+            }
+            prepared.Clear();
+            return total;
         }
 
         private void DriveCameras(Camera mainCamera, float reach)
@@ -953,26 +990,29 @@ namespace Parsek
             int lod = GhostAeroFx.ShaderLod(stockCamera.ReplacementShaders.Length, stockFx.detailLevel);
             float fov = mainCamera.fieldOfView;
 
-            depthCamera.CopyFrom(stockDepth.depthCamera);
+            // The copies took stock's settings once (BuildCopies' CopyFrom) and follow the main
+            // camera as its children; per frame only the values stock's own LateUpdate changes are
+            // set. Every write here happens before this frame's sheath submissions (SubmitPrepared),
+            // so nothing done to the camera can drop them.
             depthCamera.fieldOfView = fov;
             depthCamera.farClipPlane = reach;
             depthCamera.SetReplacementShader(stockDepth.ReplacementShader, "RenderType");
 
-            fxCamera.CopyFrom(stockCameraComponent);
-            fxCamera.cullingMask = 1 << SheathLayer;
+            if (fxCamera.cullingMask != 1 << SheathLayer) fxCamera.cullingMask = 1 << SheathLayer;
             fxCamera.fieldOfView = fov;
             fxCamera.farClipPlane = reach;
             ApplyReplacementShader(lod);
 
-            // Stock's two cameras share depth 2 or 3 (FXCamera.OnCameraChange) with the copies
-            // CopyFrom just made; render strictly after them so stock's pass and ours never
-            // interleave, depth copy first.
+            // Stock's two cameras sit at depth 2 / 3 (FXCamera.OnCameraChange); render strictly
+            // after them so stock's pass and ours never interleave, depth copy first. A depth is
+            // written only when it changes (a write re-sorts the camera).
             float after = GhostAeroFx.CopyCameraDepth(stockDepth.depthCamera.depth, stockCameraComponent.depth);
-            depthCamera.depth = after;
-            fxCamera.depth = after + GhostAeroFx.CopyCameraDepthStep;
+            if (GhostAeroFx.CameraDepthNeedsWrite(depthCamera.depth, after)) depthCamera.depth = after;
+            float fxDepth = after + GhostAeroFx.CopyCameraDepthStep;
+            if (GhostAeroFx.CameraDepthNeedsWrite(fxCamera.depth, fxDepth)) fxCamera.depth = fxDepth;
 
-            // CopyFrom carries stock's camera state; the copies' on / off state is ours, so it is
-            // set again after it (the depth pass stays off in the NoSceneDepth diagnostic mode).
+            // The copies' on / off state is ours (the depth pass stays off in the NoSceneDepth
+            // diagnostic mode).
             bool depthOn = GhostAeroFx.SceneDepthPassOn(diagMode);
             if (depthCamera.enabled != depthOn) depthCamera.enabled = depthOn;
             if (!fxCamera.enabled)
@@ -981,7 +1021,7 @@ namespace Parsek
                 if (!fxCopyReenabledLogged)
                 {
                     fxCopyReenabledLogged = true;
-                    ParsekLog.Info("ReentryFx", "Ghost aero FX camera copy was off after CopyFrom; switched on again");
+                    ParsekLog.Info("ReentryFx", "Ghost aero FX camera copy was off while drawing; switched on again");
                 }
             }
         }
@@ -1151,12 +1191,9 @@ namespace Parsek
             }
             finally
             {
-                // A manual render may consume this frame's submissions; give the on-screen render
-                // its own again, as the mode draws them.
+                // The on-screen submissions come after this (SubmitPrepared), so the manual renders
+                // cannot consume them; only the mode's replacement shader is put back.
                 ApplyReplacementShader(lod);
-                if (mpb != null)
-                    SubmitSheath(captureOffer, mpb,
-                        GhostAeroFx.UsesReplacementShader(diagMode) ? null : SanityMaterial());
             }
             report.Append("| cameras: ").Append(DescribeCameras(mainCamera));
             FinishCapture(capture, report.ToString());
