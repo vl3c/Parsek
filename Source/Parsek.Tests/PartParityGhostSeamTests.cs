@@ -455,7 +455,7 @@ namespace Parsek.Tests
             string fx = Read("Ghost", "GhostVisualBuilder.TransientFx.cs");
             string fallback = Body(fx, "internal static GameObject SpawnFallbackExplosionFx(");
             Assert.True(fallback.IndexOf("StockExplosionPrefabCache.TrySpawn(", StringComparison.Ordinal)
-                < fallback.IndexOf("SpawnExplosionFx(worldPosition, vesselLength)", StringComparison.Ordinal));
+                < fallback.IndexOf("SpawnExplosionFx(worldPosition, vesselLength, power)", StringComparison.Ordinal));
             Assert.Contains("GhostVisualBuilder.SpawnFallbackExplosionFx(worldPos, power, vesselLength);",
                 Read("Ghost", "GhostPlaybackEngine.SpawnDestroy.cs"));
             Assert.Contains("GhostVisualBuilder.SpawnFallbackExplosionFx(worldPos, power, vesselLength);",
@@ -480,7 +480,7 @@ namespace Parsek.Tests
         public void ParseksOwnEffects_AreNotedWithTheirObjectBeforeTheyAreReturned()
         {
             string text = Read("Ghost", "GhostVisualBuilder.TransientFx.cs");
-            Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.CustomExplosion, worldPosition, double\.NaN, vesselLength, obj\);\s*return obj;\s*\}$",
+            Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.CustomExplosion, worldPosition, usedPower, vesselLength, obj\);\s*return obj;\s*\}$",
                 Body(text, "internal static GameObject SpawnExplosionFx("));
             Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.PartPuff, worldPosition, double\.NaN, partScale, obj\);\s*return obj;\s*\}$",
                 Body(text, "internal static GameObject SpawnPartPuffFx("));
