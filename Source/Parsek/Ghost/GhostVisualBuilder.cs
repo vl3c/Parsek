@@ -1893,6 +1893,7 @@ namespace Parsek
 
         // Cached soft-circle texture for explosion FX (avoids per-explosion allocation in looping playback)
         private static Texture2D cachedExplosionTexture;
+        private static Texture2D cachedExplosionPuffTexture;
 
         // Cached FieldInfo for FXMonger's private static `fetch` singleton. Reading this
         // field directly mirrors FXMonger.Explode's own null-check (`if (!(fetch != null)) return;`)

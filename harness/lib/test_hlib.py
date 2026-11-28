@@ -19550,14 +19550,17 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                 ({"label": "pp11", "contexts": "ground"}, "contexts-arg-invalid"),
                 ({"label": "pp11", "contexts": "ground", "fx": "none"}, "contexts-arg-invalid"),
                 ({"label": "pp11", "contexts": "ground", "states": "all"}, "contexts-arg-invalid"),
-                ({"label": "pp11", "contexts": "ground,air"}, "contexts-arg-invalid"),
-                ({"label": "pp11", "fx": "explode", "contexts": "air"}, "burst-dust-runs-not-built"),
-                ({"label": "pp11", "fx": "decouple,burst-custom", "contexts": "air"}, "burst-dust-runs-not-built"),
-                ({"label": "pp11", "fx": "dust", "contexts": "ground"}, "burst-dust-runs-not-built")):
+                ({"label": "pp11", "contexts": "ground,air"}, "contexts-arg-invalid")):
             with self.subTest(step=step):
                 errors = v(0, step)
                 self.assertEqual(1, len(errors), errors)
                 self.assertIn(reason, errors[0])
+        # The driver is built (X4): a well-formed burst or dust run validates.
+        self.assertTrue(hlib.PARTPARITY_BURST_DUST_RUNS_BUILT)
+        for step in ({"label": "pp11", "fx": "explode", "contexts": "air"},
+                     {"label": "pp11", "fx": "decouple,burst-custom", "contexts": "air"},
+                     {"label": "pp11", "fx": "dust", "contexts": "ground"}):
+            self.assertEqual([], v(0, step), step)
         # Every P8 step still validates.
         for fx in ("plume", "all", "plume,rcs,heat,plate"):
             self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))

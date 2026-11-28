@@ -104,6 +104,22 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Diagnostic modes of the ghost reentry renderer, set only by the in-game FX rig through
+    /// <c>GhostAeroFxRenderer.SetDiagnosticModeForTesting</c>; play always runs <see cref="Normal"/>.
+    /// </summary>
+    internal enum GhostAeroFxDiagnosticMode
+    {
+        Normal = 0,
+        /// <summary>
+        /// The sheath meshes are drawn on Parsek's FX camera with a plain bright unlit material and
+        /// no replacement shader: shows whether that camera's output reaches the screen at all.
+        /// </summary>
+        SanityUnlit = 1,
+        /// <summary>Parsek's scene depth pass is off: shows whether that pass hides the sheath.</summary>
+        NoSceneDepth = 2,
+    }
+
+    /// <summary>
     /// Pure halves of the ghost reentry effect (part parity P9 Y1,
     /// docs/dev/design-part-ghost-parity.md G.7 "Y1 design"). Every rule here is stock's
     /// <c>AerodynamicsFX</c> / <c>FXCamera</c> arithmetic (KSP 1.12.5 decompile), applied to the
@@ -379,6 +395,92 @@ namespace Parsek
         /// <summary>The nearer offer wins the one light; ties keep the first.</summary>
         internal static bool LightOfferWins(bool haveCurrent, float currentDistance, float offerDistance)
             => !haveCurrent || offerDistance < currentDistance;
+
+        /// <summary>
+        /// Whether a ghost mesh is one stock's FX camera would draw: its renderer on, its object
+        /// active and its layer one that camera sees (stock's camera draws layers 0 and 17, so a
+        /// part model on another layer, a plume or a transparent helper, wears no fire on stock's
+        /// vessel either).
+        /// </summary>
+        internal static bool SheathMeshVisible(bool rendererEnabled, bool activeInHierarchy, int layer,
+            int stockFxMask)
+            => rendererEnabled && activeInHierarchy && LayerSeenByStockFx(layer, stockFxMask, 0);
+
+        /// <summary>Frames a diagnostic capture waits for a drawing frame before it gives up.</summary>
+        internal const int DiagnosticCaptureTimeoutFrames = 300;
+
+        /// <summary>Whether a capture requested at <paramref name="requestFrame"/> is abandoned.</summary>
+        internal static bool ShouldAbandonCapture(int requestFrame, int frame)
+            => frame - requestFrame > DiagnosticCaptureTimeoutFrames;
+
+        /// <summary>Whether Parsek's scene depth pass runs in this diagnostic mode.</summary>
+        internal static bool SceneDepthPassOn(GhostAeroFxDiagnosticMode mode)
+            => mode != GhostAeroFxDiagnosticMode.NoSceneDepth;
+
+        /// <summary>Whether the FX camera draws through stock's replacement shader in this mode.</summary>
+        internal static bool UsesReplacementShader(GhostAeroFxDiagnosticMode mode)
+            => mode != GhostAeroFxDiagnosticMode.SanityUnlit;
+
+        /// <summary>
+        /// A one-line summary of a captured colour image: how many pixels differ from the clear
+        /// colour, the brightest channel values among them and their mean alpha.
+        /// </summary>
+        internal static string DescribePixels(Color32[] pixels, Color32 background)
+        {
+            if (pixels == null || pixels.Length == 0) return "pixels=0";
+            int covered = 0;
+            byte maxR = 0, maxG = 0, maxB = 0;
+            long alphaSum = 0;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color32 p = pixels[i];
+                if (p.r == background.r && p.g == background.g && p.b == background.b && p.a == background.a)
+                    continue;
+                covered++;
+                if (p.r > maxR) maxR = p.r;
+                if (p.g > maxG) maxG = p.g;
+                if (p.b > maxB) maxB = p.b;
+                alphaSum += p.a;
+            }
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "pixels={0} covered={1} ({2:F3}%) maxRGB=({3},{4},{5}) meanAlphaCovered={6:F1}",
+                pixels.Length, covered, 100.0 * covered / pixels.Length, maxR, maxG, maxB,
+                covered > 0 ? (double)alphaSum / covered : 0.0);
+        }
+
+        /// <summary>
+        /// A one-line summary of a depth map read back as colour (depth in the red channel): its
+        /// red range and how many pixels differ from the corner pixel (the cleared far value).
+        /// </summary>
+        internal static string DescribeDepthPixels(Color32[] pixels)
+        {
+            if (pixels == null || pixels.Length == 0) return "pixels=0";
+            byte min = 255, max = 0;
+            byte corner = pixels[0].r;
+            int differ = 0;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                byte r = pixels[i].r;
+                if (r < min) min = r;
+                if (r > max) max = r;
+                if (r != corner) differ++;
+            }
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "pixels={0} red={1}..{2} corner={3} differFromCorner={4} ({5:F3}%)",
+                pixels.Length, min, max, corner, differ, 100.0 * differ / pixels.Length);
+        }
+
+        /// <summary>One camera's state for the renderer's camera dump.</summary>
+        internal static string FormatCameraState(string name, bool enabled, bool activeInHierarchy,
+            float depth, string clearFlags, int cullingMask, string target, float near, float far,
+            float fov, bool orthographic, string depthTextureMode)
+        {
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "'{0}' enabled={1} active={2} depth={3:G6} clear={4} mask=0x{5:X} target={6} near={7:G4} " +
+                "far={8:G6} fov={9:F1} ortho={10} depthTex={11}",
+                name ?? "?", enabled, activeInHierarchy, depth, clearFlags ?? "?", cullingMask,
+                target ?? "screen", near, far, fov, orthographic, depthTextureMode ?? "?");
+        }
     }
 
     /// <summary>

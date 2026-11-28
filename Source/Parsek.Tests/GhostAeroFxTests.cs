@@ -444,5 +444,90 @@ namespace Parsek.Tests
             GhostAeroFx.ComputeFxScalar(0.05, 1500.0, 1.5f, c, out float state);
             Assert.InRange(state, 0.5f - 1e-5f, 0.5f + 1e-5f);
         }
+        // --- per-frame mesh visibility and the rig diagnostics ---
+
+        [Theory]
+        [InlineData(true, true, 0, 0x20001, true)]
+        [InlineData(true, true, 17, 0x20001, true)]
+        [InlineData(true, true, 1, 0x20001, false)]   // a plume or transparent helper: stock skips it
+        [InlineData(false, true, 0, 0x20001, false)]  // renderer off
+        [InlineData(true, false, 0, 0x20001, false)]  // hidden part (decoupled, inactive root)
+        [InlineData(true, true, 5, ~0, true)]          // stock not resolved yet: every layer
+        public void SheathMeshVisible_NeedsEnabledActiveAndAStockLayer(bool enabled, bool active, int layer,
+            int fxMask, bool expected)
+        {
+            Assert.Equal(expected, GhostAeroFx.SheathMeshVisible(enabled, active, layer, fxMask));
+        }
+
+        [Fact]
+        public void ShouldAbandonCapture_WaitsTheTimeoutThenGivesUp()
+        {
+            Assert.False(GhostAeroFx.ShouldAbandonCapture(100, 100));
+            Assert.False(GhostAeroFx.ShouldAbandonCapture(100, 100 + GhostAeroFx.DiagnosticCaptureTimeoutFrames));
+            Assert.True(GhostAeroFx.ShouldAbandonCapture(100, 101 + GhostAeroFx.DiagnosticCaptureTimeoutFrames));
+        }
+
+        [Fact]
+        public void DiagnosticModes_NormalRunsEveryPass()
+        {
+            Assert.Equal(GhostAeroFxDiagnosticMode.Normal, default(GhostAeroFxDiagnosticMode));
+            Assert.True(GhostAeroFx.SceneDepthPassOn(GhostAeroFxDiagnosticMode.Normal));
+            Assert.True(GhostAeroFx.UsesReplacementShader(GhostAeroFxDiagnosticMode.Normal));
+            Assert.False(GhostAeroFx.SceneDepthPassOn(GhostAeroFxDiagnosticMode.NoSceneDepth));
+            Assert.True(GhostAeroFx.UsesReplacementShader(GhostAeroFxDiagnosticMode.NoSceneDepth));
+            Assert.True(GhostAeroFx.SceneDepthPassOn(GhostAeroFxDiagnosticMode.SanityUnlit));
+            Assert.False(GhostAeroFx.UsesReplacementShader(GhostAeroFxDiagnosticMode.SanityUnlit));
+        }
+
+        [Fact]
+        public void DescribePixels_CountsWhatDiffersFromTheClearColour()
+        {
+            var clear = new Color32(0, 0, 0, 0);
+            var px = new[]
+            {
+                clear, clear, new Color32(200, 80, 20, 100), new Color32(10, 250, 0, 50),
+            };
+            string d = GhostAeroFx.DescribePixels(px, clear);
+            Assert.Contains("pixels=4 covered=2 (50.000%)", d);
+            Assert.Contains("maxRGB=(200,250,20)", d);
+            Assert.Contains("meanAlphaCovered=75.0", d);
+            Assert.Equal("pixels=0", GhostAeroFx.DescribePixels(null, clear));
+            Assert.Contains("covered=0 ", GhostAeroFx.DescribePixels(new[] { clear }, clear));
+        }
+
+        [Fact]
+        public void DescribeDepthPixels_ReadsTheRedRangeAgainstTheCorner()
+        {
+            var px = new[]
+            {
+                new Color32(0, 0, 0, 255), new Color32(0, 0, 0, 255),
+                new Color32(120, 120, 120, 255), new Color32(200, 0, 0, 255),
+            };
+            string d = GhostAeroFx.DescribeDepthPixels(px);
+            Assert.Contains("red=0..200 corner=0 differFromCorner=2 (50.000%)", d);
+            Assert.Equal("pixels=0", GhostAeroFx.DescribeDepthPixels(new Color32[0]));
+        }
+
+        [Fact]
+        public void FormatCameraState_IsInvariantAndNamesTheScreenTarget()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                string row = GhostAeroFx.FormatCameraState("Camera 00", true, true, 0.5f, "Depth", 0x20001,
+                    null, 0.21f, 750000f, 60f, false, "None");
+                Assert.Equal("'Camera 00' enabled=True active=True depth=0.5 clear=Depth mask=0x20001 " +
+                    "target=screen near=0.21 far=750000 fov=60.0 ortho=False depthTex=None", row);
+                Assert.Contains("target=rt:512x512:Depth",
+                    GhostAeroFx.FormatCameraState("v", false, true, 0f, "SolidColor", 1, "rt:512x512:Depth",
+                        0f, 50f, 60f, true, "Depth"));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

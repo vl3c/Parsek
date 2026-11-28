@@ -23,6 +23,8 @@ Not released yet.
   upright around the rocket.
 - **A ghost crash at the Space Center or with the game paused uses KSP's own explosion**, the same
   grey smoke as in flight, once you have been in flight that session.
+- **Before your first flight of a session, a ghost crash looks like KSP's too:** grey smoke, with
+  fire and a flash only for the bigger crashes.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
 - **Ghost lamps fade on and off as the real lamp does** instead of snapping.

@@ -282,7 +282,9 @@ namespace Parsek
         /// <summary>
         /// Collect the FireShellMesh entries the reentry sheath redraws (each mesh filter with a
         /// mesh renderer beside it). When <paramref name="filterActiveInHierarchy"/> is true, only
-        /// meshes on active GameObjects are included.
+        /// meshes on active GameObjects are included. The sheath collects every part, active or
+        /// not, because a ghost can be built or rebuilt while its root is inactive (the whole list
+        /// would then be empty for good); the renderer skips a hidden or disabled part per frame.
         /// </summary>
         private static List<FireShellMesh> CollectFireShellMeshes(
             MeshFilter[] meshFilters, bool filterActiveInHierarchy)
@@ -593,8 +595,9 @@ namespace Parsek
         /// </summary>
         private static int BuildReentryFireShellOverlay(GameObject ghostRoot, ReentryFxInfo info)
         {
+            // Every part, active or not: a root built inactive must not lose its sheath for good.
             MeshFilter[] allMeshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
-            info.fireShellMeshes = CollectFireShellMeshes(allMeshFilters, true);
+            info.fireShellMeshes = CollectFireShellMeshes(allMeshFilters, false);
 
             int drawCalls = 0;
             for (int m = 0; m < info.fireShellMeshes.Count; m++)
@@ -815,18 +818,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Rebuilds the sheath's mesh list from currently active ghost parts. Call after
-        /// decouple/destroy events so the sheath no longer draws removed parts.
+        /// Rebuilds the sheath's mesh list from the ghost's parts. Call after decouple/destroy
+        /// events so a destroyed part leaves the list; a hidden (inactive) part stays listed and the
+        /// renderer skips it per frame, so a rebuild while the root is inactive keeps the sheath.
         /// </summary>
         internal static void RebuildReentryMeshes(GameObject ghostRoot, ReentryFxInfo info)
         {
             if (info == null || ghostRoot == null) return;
 
-            MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(false); // false = only active
+            MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
             info.fireShellMeshes = CollectFireShellMeshes(meshFilters, false);
+            int activeNow = 0;
+            for (int i = 0; i < info.fireShellMeshes.Count; i++)
+                if (info.fireShellMeshes[i].transform.gameObject.activeInHierarchy) activeNow++;
 
             ParsekLog.Verbose("ReentryFx",
-                $"rebuilt {info.fireShellMeshes.Count} reentry sheath meshes after decouple");
+                $"rebuilt {info.fireShellMeshes.Count} reentry sheath meshes after decouple ({activeNow} active now, rootActive={ghostRoot.activeInHierarchy})");
         }
 
         /// <summary>

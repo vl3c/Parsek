@@ -231,7 +231,7 @@ namespace Parsek.TestCommands
                 OriginPx = ToTilePx(nozzleInCam[0], nozzleInCam[1], orthoSize, tile),
                 NozzleDiameterPx = nozzleDiameterM > 0.0 ? (double?)(nozzleDiameterM * tile / (2.0 * orthoSize)) : null,
             };
-            if (view == PartParityFxRules.ViewFxBottom) return a;
+            if (PartParityFxRules.IsAxisView(view)) return a;
             double x = axisInCam[0] * tile / (2.0 * orthoSize), y = -axisInCam[1] * tile / (2.0 * orthoSize);
             if (Math.Sqrt(x * x + y * y) > 1e-9) a.DirPx = new[] { x, y };
             return a;
