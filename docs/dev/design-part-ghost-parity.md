@@ -2618,16 +2618,24 @@ Per route (event, start), FX view and layer:
 | Measure | Definition | Views | Fail (starting guess) | Warn |
 | --- | --- | --- | --- | --- |
 | presence | core px on each side; `fx-missing` / `fx-extra` when one side has at least `FxPresenceMinPx` = 64 and the other 0 | all | either | - |
-| origin | where the envelope starts along the axis, minus the nozzle point | side, far | more than max(4 px, 10 % of the real length) | half that |
-| lateral offset | distance of the core centroid from the axis line, ghost minus real | side, far | more than max(4 px, 5 % of the real length) | half that |
-| length | envelope extent along the axis from its origin | side, far | differs by more than 25 % of the real | 12.5 % |
-| width | largest envelope extent across the axis | side, far | 30 % | 15 % |
-| direction | angle between the axis and the line through the centroids of the core's upstream and downstream halves, ghost minus real (F1b as built; the rev 2 wording was the origin-to-core-centroid line) | side, far | 10 deg | 5 deg |
-| cross-section | core area ratio ghost / real, and the core centroid's offset from the nozzle point over the nozzle box diameter | bottom (the axis view: the axis projects to a point, so length, width and direction are not defined there) | area outside [0.6, 1.6]; offset over 0.1 | area outside [0.8, 1.25] |
-| colour | chromaticity distance of the core's mean colour; L1 distance of the hue histograms over the envelope; both over unsaturated pixels only (no channel at 255, E0 U4) | all | 0.06; 0.5 | a quarter of each |
+| origin | where the envelope starts along the axis, minus the nozzle point | side, far | more than max(4 px, 10 % of the real length) | three quarters of that |
+| lateral offset | distance of the core centroid from the axis line, ghost minus real | side, far | more than max(4 px, 5 % of the real length) | three quarters of that |
+| length | envelope extent along the axis from its origin | side, far | differs by more than 25 % of the real | 18.75 % |
+| width | largest envelope extent across the axis | side, far | 30 % | 22.5 % |
+| direction | angle between the axis and the line through the centroids of the core's upstream and downstream halves, ghost minus real (F1b as built; the rev 2 wording was the origin-to-core-centroid line) | side, far | 10 deg | 7.5 deg |
+| cross-section | core area ratio ghost / real, and the core centroid's offset from the nozzle point over the nozzle box diameter | bottom (the axis view: the axis projects to a point, so length, width and direction are not defined there) | area outside [0.6, 1.6]; offset over 0.1 | area outside [0.7, 1.4] |
+| colour | chromaticity distance of the core's mean colour; L1 distance of the hue histograms over the envelope; both over unsaturated pixels only (no channel at 255, E0 U4) | all | 0.06; 0.5 | half of each |
 | brightness | mean luminance ratio ghost / real over the core's unsaturated pixels, beside each side's saturated share | all | - | outside [0.5, 2.0] |
 | smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256); an additive trail is judged in the flame layer | all | either | - |
-| core IoU | of the two cores | all | - | under 0.5 (sorting) |
+| core IoU | of the two cores | all | - | under 0.35 (sorting) |
+
+Warn lines (owner ruling 2026-11-28). The Warn column's geometric lines sat at half their fail
+lines, colour at a quarter and core IoU at 0.5, which held about 22 of PP-7's 128 cases yellow on
+differences the owner judged minor. They now sit at three quarters (origin, lateral, length, width,
+direction), [0.7, 1.4] for area, half for colour (bursts too) and 0.35 for IoU. The fail lines,
+the bands and the gate do not move. Re-judged offline, clean runs `2026-11-27_2025` / `_2042` go
+from 23 / 22 warn to 10 / 10, every remaining one a split-half-capped fail or a value at 0.5 to
+0.99 of its fail line, and mutation run `2026-11-27_2100` keeps its 12 reds.
 
 Weak cores (F6, 2026-11-23). Where neither side's core reaches `PresenceMinPx` (64), on either
 layer, only presence is judged: origin, length and width read the envelope, and the envelope of a
