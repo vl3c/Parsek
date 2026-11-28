@@ -28,12 +28,14 @@ namespace Parsek
         internal const float SurfaceFxDefaultMaxDistance = 50f;
         internal const float SurfaceFxDefaultFalloff = 2f;
 
-        /// <summary>The built dust's emission rate and start size at full strength (Parsek's own look).</summary>
-        internal const float LaunchDustEmissionMax = 260f;
-        internal const float LaunchDustSizeMin = 1.5f;
-        internal const float LaunchDustSizeMax = 5f;
-        /// <summary>How far above the ground the flat dust sheet sits, so its billboards are not half buried.</summary>
+        /// <summary>How far above the ground the built fallback disc sits, so its billboards are not half
+        /// buried (the stock prefab copy stands at the hit point, as stock's).</summary>
         internal const float LaunchDustGroundLiftMeters = 0.5f;
+
+        /// <summary>Stock <c>SurfaceFX</c>'s start alpha at full strength: <c>Lerp(0, 0.5, fxScale)</c>.</summary>
+        internal const float SurfaceFxAlphaMax = 0.5f;
+        /// <summary>Stock <c>SurfaceFX.pushThreshold</c> (decompiled constructor).</summary>
+        internal const float SurfaceFxPushThreshold = 0.5f;
 
         /// <summary>
         /// Above this altitude over the body's datum, plus the longest reach of the ghost's lit
@@ -179,6 +181,41 @@ namespace Parsek
             for (int i = 0; i < thrustProviderModuleIndex; i++)
                 if (moduleIsEngine[i]) ordinal++;
             return ordinal;
+        }
+
+        /// <summary>Stock <c>SurfaceFX.LateUpdate</c>'s start alpha of every system it draws: <c>Lerp(0, 0.5, fxScale)</c>.</summary>
+        internal static float ComputeSurfaceFxAlpha(float fxScale)
+        {
+            if (float.IsNaN(fxScale)) return 0f;
+            return SurfaceFxAlphaMax * Math.Max(0f, Math.Min(1f, fxScale));
+        }
+
+        /// <summary>
+        /// Stock <c>SurfaceFX.UpdateParticle</c>'s weight of the push added to a dust or cloud
+        /// particle's velocity each frame: <c>(remainingLifetime / startLifetime)^pushThreshold</c>,
+        /// so a young particle is pushed hardest. Zero for a non-positive or unreadable lifetime
+        /// (stock would divide by it).
+        /// </summary>
+        internal static float ComputeSurfaceFxPushWeight(float remainingLifetime, float startLifetime)
+        {
+            if (float.IsNaN(remainingLifetime) || float.IsNaN(startLifetime) || startLifetime <= 0f
+                || remainingLifetime <= 0f)
+                return 0f;
+            return (float)Math.Pow(remainingLifetime / startLifetime, SurfaceFxPushThreshold);
+        }
+
+        /// <summary>
+        /// The effect's forward axis: stock's <c>LookRotation(Vsrf, upAxis)</c> looks along the push.
+        /// A push along the normal or of zero length (a nozzle straight over flat ground) gives Unity
+        /// no forward, so any axis on the surface serves; the effect is round about its up axis.
+        /// </summary>
+        internal static Vector3 ResolveSurfaceFxForward(Vector3 push, Vector3 normal)
+        {
+            Vector3 n = normal.sqrMagnitude > 1e-12f ? normal.normalized : Vector3.up;
+            Vector3 onSurface = push - n * Vector3.Dot(push, n);
+            if (onSurface.sqrMagnitude > 1e-10f) return onSurface.normalized;
+            Vector3 seed = Math.Abs(n.y) < 0.9f ? Vector3.up : Vector3.right;
+            return Vector3.Cross(seed, n).normalized;
         }
 
         /// <summary>

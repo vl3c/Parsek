@@ -709,6 +709,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DustAlpha_IsStocksLerpToHalfAndTheEmissionIsLeftAlone()
+        {
+            // SurfaceFX.LateUpdate: startColor alpha = Lerp(0, 0.5, fxScale), nothing else scales.
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(0f));
+            AssertClose(0.25f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(0.5f), 6);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(1f), 6);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(4f), 6);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(-1f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(float.NaN));
+            Assert.Equal(0.5f, GhostPlaybackLogic.SurfaceFxAlphaMax);
+        }
+
+        [Fact]
+        public void DustPushWeight_IsTheSquareRootOfTheLifeLeft()
+        {
+            // SurfaceFX.UpdateParticle: Pow(remaining / startLifetime, pushThreshold 0.5).
+            Assert.Equal(0.5f, GhostPlaybackLogic.SurfaceFxPushThreshold);
+            AssertClose(1f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(4f, 4f), 6);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(1f, 4f), 6);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(0f, 4f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(1f, 0f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(float.NaN, 4f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(1f, float.NaN));
+        }
+
+        [Fact]
+        public void DustForward_LooksAlongThePushOnTheSurfaceAndElseAnySurfaceAxis()
+        {
+            var up = new Vector3(0f, 0.6f, 0.8f);
+            Vector3 f = GhostPlaybackLogic.ResolveSurfaceFxForward(new Vector3(2f, 0f, 0f), up);
+            Assert.True(Vector3.Distance(Vector3.right, f) < 1e-5f, $"got {f}");
+            // A push with a part along the normal: only its surface part counts.
+            f = GhostPlaybackLogic.ResolveSurfaceFxForward(new Vector3(1f, 0f, 0f) + up * 3f, up);
+            Assert.True(Vector3.Distance(Vector3.right, f) < 1e-5f, $"got {f}");
+            // No push (a nozzle straight over flat ground) or one along the normal: some unit axis
+            // on the surface, never zero, so LookRotation always has a forward.
+            foreach (Vector3 push in new[] { Vector3.zero, up * 2f })
+            {
+                foreach (Vector3 n in new[] { up, Vector3.up, Vector3.right, Vector3.zero })
+                {
+                    Vector3 g = GhostPlaybackLogic.ResolveSurfaceFxForward(push, n);
+                    Vector3 nn = n.sqrMagnitude > 0f ? n.normalized : Vector3.up;
+                    AssertClose(1f, g.magnitude, 4);
+                    Assert.True(Math.Abs(Vector3.Dot(g, nn)) < 1e-4f, $"push={push} n={n}: {g}");
+                }
+            }
+        }
+
+        [Fact]
         public void DustLogSignature_ChangesOnSurfaceColliderOrTenthOnly()
         {
             int a = GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 42, 0.51f, 0f);

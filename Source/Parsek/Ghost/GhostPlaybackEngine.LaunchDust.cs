@@ -61,7 +61,9 @@ namespace Parsek
             var water = new LaunchDustAggregate();
             int padHits = 0;
             int colliderId = 0;
-            string skip = TraceLaunchDustSources(state, maxReach, ref terrain, ref water, ref padHits, ref colliderId);
+            bool atmosphere = false;
+            string skip = TraceLaunchDustSources(
+                state, maxReach, ref terrain, ref water, ref padHits, ref colliderId, ref atmosphere);
             int bits = (terrain.count > 0 ? 1 : 0) | (water.count > 0 ? 2 : 0) | (padHits > 0 ? 4 : 0);
             float terrainScale = terrain.FxScale;
             LogLaunchDustOnChange(recIdx, state, bits, colliderId, padHits, terrainScale, water.FxScale, skip);
@@ -84,7 +86,7 @@ namespace Parsek
                     return;
                 }
                 lazyBuildCount++;
-                info.terrain = GhostVisualBuilder.TryBuildLaunchDust(state.ghost, state.vesselName);
+                info.terrain = GhostVisualBuilder.TryBuildLaunchDust(state.ghost, state.vesselName, water: false);
                 if (info.terrain == null)
                 {
                     info.terrainUnavailable = true;
@@ -92,8 +94,8 @@ namespace Parsek
                 }
             }
 
-            terrain.TryResolve(out Vector3 position, out Vector3 normal, out Vector3 _);
-            DriveLaunchDustEmitter(info.terrain, terrainScale, position, normal);
+            terrain.TryResolve(out Vector3 position, out Vector3 normal, out Vector3 push);
+            DriveLaunchDustEmitter(info.terrain, terrainScale, position, normal, push, atmosphere);
             info.lastIntensity = terrainScale;
         }
 
@@ -112,11 +114,13 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static string TraceLaunchDustSources(
             GhostPlaybackState state, float maxReach,
-            ref LaunchDustAggregate terrain, ref LaunchDustAggregate water, ref int padHits, ref int colliderId)
+            ref LaunchDustAggregate terrain, ref LaunchDustAggregate water, ref int padHits, ref int colliderId,
+            ref bool atmosphere)
         {
             if (!SurfaceFxEnabledInSettings()) return LaunchDustSkipSettings;
             CelestialBody body = ResolveLaunchDustBody(state.lastInterpolatedBodyName);
             if (body == null) return LaunchDustSkipNoBody;
+            atmosphere = body.atmosphere;
             Vector3d bodyPos = body.position;
             double radius = body.Radius;
             double ghostAltitude = ((Vector3d)state.ghost.transform.position - bodyPos).magnitude - radius;
@@ -184,28 +188,48 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Lays the built dust disc flat on the ground at the combined hit point, lifted by
-        /// <see cref="GhostPlaybackLogic.LaunchDustGroundLiftMeters"/>, and sizes its emission by
-        /// the strength. The emitter is a Circle shape, which emits in its local XY plane, so its
-        /// local Z is turned onto the surface normal.
+        /// Stock's <c>SurfaceFX.LateUpdate</c> on a ghost emitter (decompiled, KSP 1.12.5): the effect
+        /// stands at the combined hit point, its up the surface normal and its forward the push
+        /// (<c>LookRotation(Vsrf, upAxis)</c>); the dust and wake always play and the cloud only
+        /// where the body has an atmosphere; every drawn system keeps its own colour with start
+        /// alpha <c>Lerp(0, 0.5, fxScale)</c> and its emission rate untouched, which is what makes
+        /// stock's dust a faint haze that thins as the engine climbs; the dust's and cloud's live
+        /// particles are pushed along the surface by <c>Vsrf * (remaining / lifetime)^0.5</c> each
+        /// frame. The built fallback disc is lifted a little so its billboards are not half buried.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void DriveLaunchDustEmitter(LaunchDustEmitter e, float fxScale, Vector3 position, Vector3 normal)
+        private static void DriveLaunchDustEmitter(
+            LaunchDustEmitter e, float fxScale, Vector3 position, Vector3 normal, Vector3 push, bool atmosphere)
         {
-            ParticleSystem ps = e?.dust;
-            if (ps == null || e.root == null) return;
+            if (e?.root == null || e.dust == null) return;
             if (normal.sqrMagnitude < 1e-8f) normal = Vector3.up;
             normal.Normalize();
-            e.root.transform.SetPositionAndRotation(
-                position + normal * GhostPlaybackLogic.LaunchDustGroundLiftMeters,
-                Quaternion.FromToRotation(Vector3.forward, normal));
-            var emission = ps.emission;
-            emission.rateOverTimeMultiplier = GhostPlaybackLogic.LaunchDustEmissionMax * fxScale;
-            var main = ps.main;
-            main.startSizeMultiplier = Mathf.Lerp(
-                GhostPlaybackLogic.LaunchDustSizeMin, GhostPlaybackLogic.LaunchDustSizeMax, fxScale);
-            if (!ps.isPlaying) ps.Play();
+            Vector3 forward = GhostPlaybackLogic.ResolveSurfaceFxForward(push, normal);
+            Vector3 at = e.stockPrefab ? position : position + normal * GhostPlaybackLogic.LaunchDustGroundLiftMeters;
+            e.root.transform.SetPositionAndRotation(at, Quaternion.LookRotation(forward, normal));
+
+            float alpha = GhostPlaybackLogic.ComputeSurfaceFxAlpha(fxScale);
+            bool cloud = atmosphere && e.cloud != null;
+            if (cloud) DriveSurfaceFxSystem(e.cloud, e.cloudColor, alpha, push, e.buffer);
+            else if (e.cloud != null && e.cloud.isEmitting) e.cloud.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            DriveSurfaceFxSystem(e.dust, e.dustColor, alpha, push, e.buffer);
+            if (e.wake != null) DriveSurfaceFxSystem(e.wake, e.wakeColor, alpha, Vector3.zero, null);
             e.fxScale = fxScale;
+            e.emitting = true;
+        }
+
+        private static void DriveSurfaceFxSystem(
+            ParticleSystem ps, Color rgb, float alpha, Vector3 push, ParticleSystem.Particle[] buffer)
+        {
+            if (!ps.isPlaying) ps.Play(false);
+            var main = ps.main;
+            main.startColor = new Color(rgb.r, rgb.g, rgb.b, alpha);
+            if (buffer == null || push.sqrMagnitude <= 0f) return;
+            float lifetime = main.startLifetime.constant;
+            int n = ps.GetParticles(buffer);
+            for (int i = 0; i < n; i++)
+                buffer[i].velocity += push * GhostPlaybackLogic.ComputeSurfaceFxPushWeight(buffer[i].remainingLifetime, lifetime);
+            ps.SetParticles(buffer, n);
         }
 
         /// <summary>
@@ -250,19 +274,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stops an emitter's emission; what it has emitted lives out its life. The early-out is on
-        /// the SYSTEM STILL PLAYING rather than on a cached strength: ResetForLoopCycle zeroes the
-        /// memo without being able to touch Unity.
+        /// Stops an emitter's emission (stock disables it at zero strength); what it has emitted
+        /// lives out its life. The early-out is the emitter's own flag, which every stop and the
+        /// loop-cycle clear reset.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void StopLaunchDustEmitter(LaunchDustEmitter e)
         {
             e.fxScale = 0f;
-            ParticleSystem ps = e.dust;
-            if (ps == null || !ps.isPlaying) return;
-            var emission = ps.emission;
-            emission.rateOverTimeMultiplier = 0f;
-            ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+            if (!e.emitting) return;
+            e.emitting = false;
+            if (e.cloud != null) e.cloud.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            if (e.dust != null) e.dust.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            if (e.wake != null) e.wake.Stop(false, ParticleSystemStopBehavior.StopEmitting);
         }
 
         #endregion

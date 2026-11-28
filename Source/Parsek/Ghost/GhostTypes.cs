@@ -480,6 +480,8 @@ namespace Parsek
         public Texture2D generatedTexture;
         /// <summary>The strength last driven (stock's clamped sum of ScaledFX); 0 while stopped.</summary>
         public float fxScale;
+        /// <summary>Whether the systems are emitting, so a stopped emitter is not stopped again every frame.</summary>
+        public bool emitting;
     }
 
     /// <summary>
