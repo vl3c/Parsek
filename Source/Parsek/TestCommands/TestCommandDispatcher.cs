@@ -163,6 +163,10 @@ namespace Parsek.TestCommands
 
         /// <summary>The replayed journal phase for THIS command id (None if fresh).</summary>
         public JournalPhase JournalPhase;
+
+        /// <summary>A far watch runs or a camera drone exists (design-far-watch.md H7): every
+        /// verb that could change a vessel, the scene or a save but a residual one refuses.</summary>
+        public bool FarWatchActive;
     }
 
     /// <summary>
@@ -323,6 +327,8 @@ namespace Parsek.TestCommands
         // ----- EvaMove (the active EVA kerbal driven by jetpack or on foot with the player's
         // own movement input for a set number of game seconds) -----
         void EvaMove(ParsedCommand cmd);
+        // ----- FarWatch (the camera drone: start / stop / status) -----
+        void FarWatch(ParsedCommand cmd);
         // ----- The map-geometry pair: DumpMapGeometry (the geometry the map drew in one
         // frame, written as <label>.map.json) and MapCamera (the map camera framed by
         // value) -----
@@ -783,6 +789,8 @@ namespace Parsek.TestCommands
                 // EvaMove: the EVA family row. RequiresFlight with the not-eva defer below;
                 // its own budget (the held input plus the stow presses and the settle).
                 ["EvaMove"] = VerbSceneRequirement.RequiresFlight,
+                // FarWatch: FLIGHT only (the drone lives in the flight scene); its own budget.
+                ["FarWatch"] = VerbSceneRequirement.RequiresFlight,
                 // The map-geometry pair: a map scene (FLIGHT or the Tracking Station); the
                 // executor refuses FLIGHT with the map closed (map-view-closed). Default
                 // budget: the dump waits one frame for its end-of-frame capture, and the
@@ -829,6 +837,11 @@ namespace Parsek.TestCommands
             // No command executes while an in-game test batch runs.
             if (state.BatchRunning)
                 return DispatchResult.Defer(BatchRunningDeferReason);
+            // While a far watch runs only FarWatch, the non-mutating verbs and a residual-name
+            // SaveGame pass (H7): a refusal, not a defer, so a wrong lane fails fast.
+            if (state.FarWatchActive
+                && !TestCommandFarWatch.IsAllowedDuringFarWatch(parsed.Verb, Arg(parsed, "name")))
+                return DispatchResult.Reject(TestCommandFarWatch.FarWatchActiveReason);
 
             VerbSceneRequirement req = RequirementFor(parsed.Verb);
             if (req == VerbSceneRequirement.RequiresFlight && state.Scene != TestCommandScene.Flight)
@@ -1290,6 +1303,11 @@ namespace Parsek.TestCommands
         /// flown yet.</summary>
         internal const double EvaMoveSeconds = TestCommandEvaMove.BudgetSeconds;
 
+        /// <summary>FarWatch: the drone build, the two hand-overs and the teardown's terrain
+        /// wait (<see cref="TestCommandFarWatch.BudgetSeconds"/>), unmeasured: the verb has
+        /// not flown yet.</summary>
+        internal const double FarWatchSeconds = TestCommandFarWatch.BudgetSeconds;
+
         /// <summary>EvaGroundScience (coverage wave 10): not-eva defer + the place gate
         /// (kerbal landed and standing) + the preview build + the confirm presses and
         /// face-away re-turns + the ground vessel load, or the pick-up's retract animation +
@@ -1449,6 +1467,8 @@ namespace Parsek.TestCommands
                     return EvaChuteDeploySeconds;
                 case "EvaMove":
                     return EvaMoveSeconds;
+                case "FarWatch":
+                    return FarWatchSeconds;
                 case "EvaGroundScience":
                     return EvaGroundScienceSeconds;
                 case "ExitToSpaceCenter":

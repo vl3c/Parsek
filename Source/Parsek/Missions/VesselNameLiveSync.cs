@@ -464,7 +464,7 @@ namespace Parsek
             {
                 string newName = v.vesselName;
                 uint pid = v.persistentId;
-                bool ghost = GhostMapPresence.IsGhostMapVessel(pid);
+                bool ghost = GhostMapPresence.IsGhostOrDroneVessel(pid);
                 if (ghost || string.Equals(oldName, newName, StringComparison.Ordinal))
                 {
                     ParsekLog.Verbose(Tag, "Stock rename ignored: source=" + source + " pid=" +
@@ -822,7 +822,7 @@ namespace Parsek
                     Pid = pv.persistentId,
                     Name = pv.vesselName,
                     RecordingLegId = null,
-                    IsGhostMap = GhostMapPresence.IsGhostMapVessel(pv.persistentId),
+                    IsGhostMap = GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId),
                     Write = n => VesselRenameWriter.ApplyProtoName(captured, n, reason),
                 });
             }
@@ -838,7 +838,7 @@ namespace Parsek
                 Pid = v.persistentId,
                 Name = v.vesselName,
                 RecordingLegId = recordingLegId,
-                IsGhostMap = GhostMapPresence.IsGhostMapVessel(v.persistentId),
+                IsGhostMap = GhostMapPresence.IsGhostOrDroneVessel(v.persistentId),
                 Write = n => VesselRenameWriter.ApplyStockName(captured, n, reason),
             };
         }

@@ -909,7 +909,7 @@ namespace Parsek
         private static bool IsLiveVesselInUseCore(uint pid, out string why)
         {
             why = null;
-            Vessel active = FlightGlobals.ActiveVessel;
+            Vessel active = FarWatchPlayerVessel.Resolve();
             if (active != null && active.persistentId == pid)
             {
                 why = "the active vessel";
@@ -960,7 +960,7 @@ namespace Parsek
             FindLiveVessel(pid, out vessel, out proto);
             if (vessel == null && proto == null)
                 return null;
-            if (vessel != null && vessel == FlightGlobals.ActiveVessel)
+            if (vessel != null && vessel == FarWatchPlayerVessel.Resolve())
                 return null;
 
             ConfigNode snapshot;

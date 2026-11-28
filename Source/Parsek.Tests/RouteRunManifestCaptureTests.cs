@@ -344,6 +344,161 @@ namespace Parsek.Tests
             Assert.Equal("manifest-voided", reason);
         }
 
+        // ---------- Far watch (design-far-watch.md 7.4): the hand-over keeps the proof ----------
+
+        private static RecordingTree TreeWith(Recording rec)
+        {
+            var tree = new RecordingTree { Id = "fw-tree", ActiveRecordingId = rec.RecordingId };
+            tree.AddOrReplaceRecording(rec);
+            return tree;
+        }
+
+        // catches: the far-watch swap voiding the ship's write-once START half (FW-1 flight
+        // 2026-11-28_0051 was refused for exactly this before the watch kept the proof).
+        [Fact]
+        public void FarWatchHandover_KeepsManifest()
+        {
+            var rec = new Recording { RecordingId = "fw-ship", RouteRunManifest = StartOnlyManifest() };
+            RecordingTree tree = TreeWith(rec);
+
+            bool kept = RouteProofCapture.ApplyRunManifestOnBackgroundTransition(
+                tree, "fw-ship", farWatchHandover: true, harvestWindowCount: 0, harvestWindowOpen: false);
+
+            Assert.True(kept);
+            Assert.NotNull(rec.RouteRunManifest);
+            Assert.True(rec.RouteRunManifest.HasStartHalf);
+            Assert.False(rec.RunManifestVoided);
+            Assert.Contains(logLines, l => l.Contains("[INFO]") && l.Contains("[Recorder]")
+                && l.Contains("RouteRunManifest kept across far watch: recording=fw-ship")
+                && l.Contains("parts=2") && l.Contains("res=1"));
+            Assert.DoesNotContain(logLines, l => l.Contains("RouteRunManifest voided"));
+        }
+
+        // catches: the hand-back's promotion re-capturing a START half on the kept leg. The
+        // leg still looks "at birth" here (no samples), so only the write-once guard stops a
+        // mid-run baseline that would fold watch-period gains into start cargo.
+        [Fact]
+        public void FarWatchHandback_DoesNotRecapture_AdoptsKeptStartHalf()
+        {
+            RouteRunCargoManifest start = StartOnlyManifest(oreAmount: 7.0);
+            var rec = new Recording { RecordingId = "fw-back", RouteRunManifest = start };
+            RecordingTree tree = TreeWith(rec);
+
+            RouteProofCapture.ApplyRunManifestOnBackgroundTransition(tree, "fw-back", true, 0, false);
+
+            Assert.False(RouteProofCapture.ShouldCaptureRunManifestStartHalf(rec, out string reason));
+            Assert.Equal("start-half-already-captured", reason);
+            Assert.Same(start, rec.RouteRunManifest);
+            Assert.Equal(7.0, rec.RouteRunManifest.StartTransportResources["Ore"].amount);
+        }
+
+        // catches: the keep leaking to an ordinary switch, which must void exactly as before.
+        [Fact]
+        public void OrdinarySwitch_StillVoids_AsBefore()
+        {
+            var rec = new Recording { RecordingId = "plain-switch", RouteRunManifest = StartOnlyManifest() };
+            RecordingTree tree = TreeWith(rec);
+
+            bool kept = RouteProofCapture.ApplyRunManifestOnBackgroundTransition(
+                tree, "plain-switch", farWatchHandover: false, harvestWindowCount: 0, harvestWindowOpen: false);
+
+            Assert.False(kept);
+            Assert.Null(rec.RouteRunManifest);
+            Assert.True(rec.RunManifestVoided);
+            Assert.Contains(logLines, l => l.Contains("[WARN]")
+                && l.Contains("RouteRunManifest voided: recording=plain-switch")
+                && l.Contains("reason=background-transition"));
+            Assert.DoesNotContain(logLines, l => l.Contains("far watch"));
+        }
+
+        // catches: a kept manifest losing the harvest windows the recorder held, which would
+        // turn a witnessed harvest into an UntrackedCargoGain rejection after the hand-back.
+        [Theory]
+        [InlineData(1, false)]
+        [InlineData(0, true)]
+        [InlineData(2, true)]
+        public void FarWatchHandover_WithHarvestWindows_Voids(int windows, bool open)
+        {
+            var rec = new Recording { RecordingId = "fw-drill", RouteRunManifest = StartOnlyManifest() };
+            RecordingTree tree = TreeWith(rec);
+
+            bool kept = RouteProofCapture.ApplyRunManifestOnBackgroundTransition(tree, "fw-drill", true, windows, open);
+
+            Assert.False(kept);
+            Assert.Null(rec.RouteRunManifest);
+            Assert.True(rec.RunManifestVoided);
+            Assert.Contains(logLines, l => l.Contains("[Recorder]")
+                && l.Contains("RouteRunManifest not kept across far watch: recording=fw-drill")
+                && l.Contains("reason=harvest-windows"));
+            Assert.Contains(logLines, l => l.Contains("RouteRunManifest voided: recording=fw-drill")
+                && l.Contains("reason=background-transition"));
+        }
+
+        [Fact]
+        public void KeepDecision_Reasons()
+        {
+            var voided = new Recording { RecordingId = "v", RunManifestVoided = true };
+            var noStart = new Recording { RecordingId = "n" };
+            var good = new Recording { RecordingId = "g", RouteRunManifest = StartOnlyManifest() };
+
+            Assert.False(RouteProofCapture.ShouldKeepRunManifestOnBackgroundTransition(false, good, 0, false, out string r1));
+            Assert.Equal("not-far-watch", r1);
+            Assert.False(RouteProofCapture.ShouldKeepRunManifestOnBackgroundTransition(true, null, 0, false, out string r2));
+            Assert.Equal("no-tree-recording", r2);
+            Assert.False(RouteProofCapture.ShouldKeepRunManifestOnBackgroundTransition(true, voided, 0, false, out string r3));
+            Assert.Equal("manifest-voided", r3);
+            Assert.False(RouteProofCapture.ShouldKeepRunManifestOnBackgroundTransition(true, noStart, 0, false, out string r4));
+            Assert.Equal("no-start-half", r4);
+            Assert.True(RouteProofCapture.ShouldKeepRunManifestOnBackgroundTransition(true, good, 0, false, out string r5));
+            Assert.Equal("far-watch-handover", r5);
+        }
+
+        // catches: a far watch on a leg with no START half dropping the tombstone, which would
+        // let the hand-back's promotion capture a mid-life baseline on a leg still at birth.
+        [Fact]
+        public void FarWatchHandover_NoStartHalf_StillSetsTombstone()
+        {
+            var rec = new Recording { RecordingId = "fw-nostart" };
+            RecordingTree tree = TreeWith(rec);
+
+            Assert.False(RouteProofCapture.ApplyRunManifestOnBackgroundTransition(tree, "fw-nostart", true, 0, false));
+
+            Assert.True(rec.RunManifestVoided);
+            Assert.False(RouteProofCapture.ShouldCaptureRunManifestStartHalf(rec, out string reason));
+            Assert.Equal("manifest-voided", reason);
+            Assert.Contains(logLines, l => l.Contains("reason=no-start-half"));
+        }
+
+        // catches: a dock, coupling or part loss of the ship during the watch leaving the kept
+        // manifest standing.
+        [Fact]
+        public void FarWatchShipChange_VoidsKeptManifest()
+        {
+            var rec = new Recording { RecordingId = "fw-docked", RouteRunManifest = StartOnlyManifest() };
+            RecordingTree tree = TreeWith(rec);
+            Assert.True(RouteProofCapture.ApplyRunManifestOnBackgroundTransition(tree, "fw-docked", true, 0, false));
+
+            bool voided = RouteProofCapture.VoidRunManifestForFarWatchShipChange(tree, "fw-docked");
+
+            Assert.True(voided);
+            Assert.Null(rec.RouteRunManifest);
+            Assert.True(rec.RunManifestVoided);
+            Assert.False(RouteProofCapture.ShouldCaptureRunManifestStartHalf(rec, out string reason));
+            Assert.Equal("manifest-voided", reason);
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[Recorder]")
+                && l.Contains("RouteRunManifest voided: recording=fw-docked")
+                && l.Contains("reason=far-watch-ship-changed"));
+        }
+
+        [Fact]
+        public void FarWatchShipChange_UnknownRecording_NoOp()
+        {
+            Assert.False(RouteProofCapture.VoidRunManifestForFarWatchShipChange(null, "x"));
+            var rec = new Recording { RecordingId = "other", RouteRunManifest = StartOnlyManifest() };
+            Assert.False(RouteProofCapture.VoidRunManifestForFarWatchShipChange(TreeWith(rec), null));
+            Assert.NotNull(rec.RouteRunManifest);
+        }
+
         // ---------- Review follow-up MINOR 5: null capture snapshot ----------
 
         // catches: completion against a null capture snapshot stamping

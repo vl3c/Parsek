@@ -41,7 +41,7 @@ namespace Parsek.TestCommands
             }
 
             Vessel v = hasPid ? FindLiveVesselByPid(pid) : FlightGlobals.ActiveVessel;
-            bool ghost = v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId);
+            bool ghost = v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId);
             if (hasPart)
             {
                 // The vessel half of the gate; the part half (and the part accept) follow.

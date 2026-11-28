@@ -2237,7 +2237,7 @@ namespace Parsek
             Dictionary<uint, uint> decoupleOriginByNewPid)
         {
             if (pid == recordedPid) return DeferredScanCandidate.Skip;
-            if (GhostMapPresence.IsGhostMapVessel(pid)) return DeferredScanCandidate.Skip;
+            if (GhostMapPresence.IsGhostOrDroneVessel(pid)) return DeferredScanCandidate.Skip;
 
             // Only consider vessels that didn't exist before the break
             if (preBreakVesselPids != null && preBreakVesselPids.Contains(pid))

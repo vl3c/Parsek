@@ -238,7 +238,9 @@ namespace Parsek.Tests
             // Quit to Main Menu (stock saveAndExit(MAINMENU)).
             // EvaMove is ADDITIVE (64 -> 65; reserved unchanged at 4): the active EVA kerbal
             // driven by jetpack or on foot with the player's own movement input.
-            Assert.Equal(65, TestCommandVerbs.ImplementedVerbNames.Count);
+            // FarWatch is ADDITIVE (65 -> 66; reserved unchanged at 4): the far watch's camera
+            // drone start / stop / status (design-far-watch.md 17.4).
+            Assert.Equal(66, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

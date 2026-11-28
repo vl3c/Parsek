@@ -275,7 +275,7 @@ namespace Parsek.Patches
             Func<uint, bool> isAllowed = null;
             if (allowed != null)
                 isAllowed = pid => ReFlySwitchGate.Decide(true, pid, allowed, ReFlySwitchGate.PathVesselCycle).Allowed;
-            CycleFilter filter = FilterCandidates(candidatePids, GhostMapPresence.IsGhostMapVessel, isAllowed);
+            CycleFilter filter = FilterCandidates(candidatePids, GhostMapPresence.IsGhostOrDroneVessel, isAllowed);
             if (report != null) { report.GhostsDropped = filter.GhostsDropped; report.RefusedDropped = filter.RefusedDropped; }
 
             if (!filter.LeaveToStock && filter.KeptIndices.Count == 0)
@@ -395,7 +395,7 @@ namespace Parsek.Patches
             for (int i = 0; i < candidatePids.Count; i++)
             {
                 report.CandidatePids.Add(candidatePids[i]);
-                report.CandidateIsGhost.Add(GhostMapPresence.IsGhostMapVessel(candidatePids[i]));
+                report.CandidateIsGhost.Add(GhostMapPresence.IsGhostOrDroneVessel(candidatePids[i]));
             }
         }
 

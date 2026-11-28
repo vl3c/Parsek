@@ -1510,7 +1510,9 @@ namespace Parsek
             ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording(rec, captured, splitRec.RecordingVesselId);
 
             // Tag segment phase if untagged
-            ParsekFlight.TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
+            ParsekFlight.TagSegmentPhaseIfMissing(rec, FlightRecorder.ResolveRecordedOrFallbackVessel(
+                splitRec.RecordingVesselId != 0 ? FlightRecorder.FindVesselByPid(splitRec.RecordingVesselId) : null,
+                "FallbackCommitSplitRecorder"));
 
             // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit directly.
             // Both discards require pad evidence on the recording itself (this branch handles
@@ -2100,7 +2102,7 @@ namespace Parsek
             // The surviving parent is the vessel the active recorder records. It is not
             // always the active vessel: a split can move focus to the vessel that came off
             // before the hand-off to the background recorder (EmitPendingSplitBeforeFocusLeaves).
-            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            Vessel activeVessel = FarWatchPlayerVessel.Resolve();
             uint parentVesselPid = ParsekFlight.ResolveBreakupParentVesselPid(
                 parentRecorder != null ? parentRecorder.RecordingVesselId : 0u,
                 activeVessel != null ? activeVessel.persistentId : 0u);

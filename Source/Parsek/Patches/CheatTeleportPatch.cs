@@ -22,6 +22,14 @@ namespace Parsek.Patches
             try
             {
                 Vessel v = FlightGlobals.ActiveVessel;
+                if (v != null && CameraDrone.Is(v))
+                {
+                    // The drone mover never calls SetShipOrbit; a teleport of the drone is
+                    // overwritten by the next tick (design-far-watch.md 6.3).
+                    ParsekLog.Info(CheatTeleportDecision.Tag,
+                        "Cheat teleport of the far-watch camera drone ignored (the mover overwrites it next tick)");
+                    return;
+                }
                 ParsekFlight flight = ParsekFlight.Instance;
                 if (flight != null && flight.HandleCheatTeleport(v, oldBody))
                     return;

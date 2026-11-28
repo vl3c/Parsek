@@ -114,7 +114,7 @@ namespace Parsek
 
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
-            if (activeVesselPid == 0 || GhostMapPresence.IsGhostMapVessel(activeVesselPid))
+            if (activeVesselPid == 0 || GhostMapPresence.IsGhostOrDroneVessel(activeVesselPid))
                 return false;
 
             if (IsCommittedSpawnedRestoreSuppressedForVessel(

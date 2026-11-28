@@ -2,7 +2,7 @@
 modules.toml, the backward / lateral split, the per-pair ratchet pinned in
 layer_pins.toml and the forbidden-edge gates.
 
-The file name matches CI's compiled-IL step pattern (`test_[ims]*.py`), so the
+The file name matches CI's compiled-IL step pattern (`test_[fims]*.py`), so the
 real-tree cells run there against the built Debug DLL; the pure cells and the
 declaration cells run in the DLL-free suite as well. Without PARSEK_ARCH_IL
 the real-tree cells skip with that reason.

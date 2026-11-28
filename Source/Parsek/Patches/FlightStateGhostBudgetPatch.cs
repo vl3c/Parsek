@@ -140,7 +140,7 @@ namespace Parsek.Patches
         {
             if (GhostCountOverrideForTesting != null)
                 return GhostCountOverrideForTesting();
-            if (GhostMapPresence.RegisteredGhostMapVesselCount == 0)
+            if (GhostMapPresence.RegisteredGhostMapVesselCount == 0 && !CameraDroneIdentity.Exists)
                 return 0;
 
             List<Vessel> vessels = FlightGlobals.Vessels;
@@ -155,7 +155,8 @@ namespace Parsek.Patches
                 entries.Add(new KeyValuePair<uint, bool>(
                     v.persistentId, v.state == Vessel.State.DEAD));
             }
-            return CountGhostVessels(entries, GhostMapPresence.IsGhostMapVessel);
+            // The far-watch camera drone counts like a ghost (design-far-watch.md 6.4).
+            return CountGhostVessels(entries, GhostMapPresence.IsGhostOrDroneVessel);
         }
 
         static void Prefix(out BudgetAdjustment __state)

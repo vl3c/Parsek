@@ -294,6 +294,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure (todo STOP-CAPTURES-ACTIVE-NOT-RECORDED-VESSEL, design-far-watch.md H5): a stop,
+        /// capture or resume uses the vessel the recorder records. The active vessel stands in
+        /// only when the recorded one is not found (a dock absorbed it, the pid changed) and
+        /// the active vessel is not the far-watch camera drone.
+        /// </summary>
+        internal static bool ShouldUseActiveVesselAsRecordedFallback(bool recordedFound, bool activeIsDrone)
+        {
+            return !recordedFound && !activeIsDrone;
+        }
+
+        /// <summary>
+        /// The vessel a stop or capture reads: the recorded vessel, else the active vessel unless
+        /// the active vessel is the camera drone. Null when neither applies.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static Vessel ResolveRecordedOrFallbackVessel(Vessel recordedVessel, string logTag)
+        {
+            if (recordedVessel != null)
+                return recordedVessel;
+            Vessel active = FlightGlobals.ActiveVessel;
+            bool activeIsDrone = active != null && CameraDroneIdentity.IsDrone(active.persistentId, active.id);
+            if (ShouldUseActiveVesselAsRecordedFallback(false, activeIsDrone))
+                return active;
+            ParsekLog.Info("Recorder",
+                $"{logTag}: recorded vessel not found and the active vessel is the far-watch camera drone - no live vessel read");
+            return null;
+        }
+
+        /// <summary>
         /// Test seam for the stop UT <see cref="FinalizeRecordingState"/> reads once and uses for
         /// the orbit segment end, the section close and the terminal events. Null in every
         /// player build.
@@ -496,11 +526,13 @@ namespace Parsek
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
+            Vessel captureVessel = ResolveRecordedOrFallbackVessel(recordedVessel, "StopRecording");
             CaptureAtStop = BuildCaptureRecording(
-                FlightGlobals.ActiveVessel != null
-                    ? FlightGlobals.ActiveVessel.vesselName
+                captureVessel != null
+                    ? captureVessel.vesselName
                     : "Unknown Vessel",
-                VesselDestroyedDuringRecording);
+                VesselDestroyedDuringRecording,
+                captureVessel);
             pendingJointChildPartOriginSeeds.Clear();
 
             double duration = Recording.Count > 0
@@ -531,11 +563,13 @@ namespace Parsek
                 logTag: "chain boundary stop",
                 recordedVessel: recordedVessel);
 
+            Vessel captureVessel = ResolveRecordedOrFallbackVessel(recordedVessel, "StopRecordingForChainBoundary");
             CaptureAtStop = BuildCaptureRecording(
-                FlightGlobals.ActiveVessel != null
-                    ? FlightGlobals.ActiveVessel.vesselName
+                captureVessel != null
+                    ? captureVessel.vesselName
                     : "Unknown Vessel",
                 VesselDestroyedDuringRecording,
+                captureVessel,
                 stopIsChainBoundary: true);
 
             double duration = Recording.Count > 0
@@ -552,6 +586,23 @@ namespace Parsek
         /// part leaves on it) before the deferred split check runs; resuming on the active
         /// vessel would then record the new vessel into this vessel's recording.
         /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private Vessel ResolveResumeVessel(bool keepRecordedVessel)
+        {
+            Vessel active = FlightGlobals.ActiveVessel;
+            bool activeIsDrone = active != null && CameraDroneIdentity.IsDrone(active.persistentId, active.id);
+            if (ShouldResumeOnRecordedVessel(keepRecordedVessel, activeIsDrone))
+                return FindVesselByPid(RecordingVesselId);
+            return active;
+        }
+
+        /// <summary>Pure: resume on the recorded vessel when asked to, or when the drone is active.</summary>
+        internal static bool ShouldResumeOnRecordedVessel(bool keepRecordedVessel, bool activeIsDrone)
+        {
+            return keepRecordedVessel || activeIsDrone;
+        }
+
         public void ResumeAfterFalseAlarm(bool keepRecordedVessel)
         {
             if (IsRecording)
@@ -560,9 +611,7 @@ namespace Parsek
                 return;
             }
 
-            Vessel v = keepRecordedVessel
-                ? FindVesselByPid(RecordingVesselId)
-                : FlightGlobals.ActiveVessel;
+            Vessel v = ResolveResumeVessel(keepRecordedVessel);
             if (v == null)
             {
                 ParsekLog.Warn("Recorder", keepRecordedVessel

@@ -297,6 +297,8 @@ namespace Parsek
             new Dictionary<string, ReadyEndEstimate>(StringComparer.Ordinal);
 
         internal static bool HasPendingPlacement => pendingPlacement != null;
+        /// <summary>A placement is being watched after its jump (far-watch entry refusal, design-far-watch.md 8.3).</summary>
+        internal static bool HasWatchedPlacement => watchedPlacement != null;
         internal static int ReadyEndCacheCount => readyEndCache.Count;
 
         /// <summary>
@@ -1202,7 +1204,7 @@ namespace Parsek
             if (plan == null)
                 return;
             double now = Planetarium.GetUniversalTime();
-            Vessel active = FlightGlobals.ActiveVessel;
+            Vessel active = FarWatchPlayerVessel.Resolve();
             Vector3d? drawn = plan.DrawnReference != null ? plan.DrawnReference() : null;
 
             int pendingUnpack = 0;

@@ -496,7 +496,15 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
-            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            // The drone first, so its skip is logged; the ghost-or-drone skip below then
+            // covers only ghosts and a drone matched by pid alone.
+            if (data.host != null && CameraDrone.Is(data.host))
+            {
+                ParsekLog.VerboseRateLimited("FarWatch", "drone-situation-skip",
+                    "OnVesselSituationChange: skipped for the far-watch camera drone", 5.0);
+                return;
+            }
+            if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
             double currentUT = Planetarium.GetUniversalTime();
             bool suppressLaunchAutoRecordForTimeJump =
                 TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
@@ -574,7 +582,14 @@ namespace Parsek
         void OnStageActivate(int stage)
         {
             Vessel av = FlightGlobals.ActiveVessel;
-            if (av != null && GhostMapPresence.IsGhostMapVessel(av.persistentId)) return;
+            // The drone first, so its skip is logged (as in OnVesselSituationChange).
+            if (av != null && CameraDrone.Is(av))
+            {
+                ParsekLog.Info("FarWatch", "OnStageActivate: skipped stage=" + stage +
+                    " while the far-watch camera drone is active");
+                return;
+            }
+            if (av != null && GhostMapPresence.IsGhostOrDroneVessel(av.persistentId)) return;
 
             // Staging changes what the vessel can still do; the recorder reads the settled
             // delta-v after stock recalculates. A split that follows writes its own snapshots.
@@ -629,7 +644,7 @@ namespace Parsek
 
         void OnVesselWasModified(Vessel v)
         {
-            if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+            if (v == null || GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
                 return;
 
             // M5: the recorder's engine/RCS/robotic caches are built once at StartRecording and
@@ -651,7 +666,7 @@ namespace Parsek
 
         void OnVesselGoOnRails(Vessel v)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             // Track pre-pack vessel state for phantom terrain crash detection
             if (v != null)
                 packStates[v.persistentId] = (Planetarium.GetUniversalTime(), v.situation);
@@ -661,7 +676,7 @@ namespace Parsek
 
         void OnVesselGoOffRails(Vessel v)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             if (v != null) packStates.Remove(v.persistentId);
             recorder?.OnVesselGoOffRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
@@ -670,7 +685,7 @@ namespace Parsek
         void OnVesselLoaded(Vessel v)
         {
             if (v == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
 
             uint pid = v.persistentId;
             loadedAnchorVessels.Add(pid);
@@ -749,7 +764,7 @@ namespace Parsek
                 return;
             List<uint> pids = ReadLoadedVesselPids();
             int added = SeedLoadedAnchorVessels(
-                loadedAnchorVessels, pids, GhostMapPresence.IsGhostMapVessel, out int ghostSkipped);
+                loadedAnchorVessels, pids, GhostMapPresence.IsGhostOrDroneVessel, out int ghostSkipped);
             ParsekLog.Verbose("Loop",
                 $"Loaded-anchor set seeded: reason={reason} loaded={pids.Count} added={added} " +
                 $"ghostSkipped={ghostSkipped} total={loadedAnchorVessels.Count}");
@@ -775,7 +790,7 @@ namespace Parsek
         void OnVesselUnloaded(Vessel v)
         {
             if (v == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             uint pid = v.persistentId;
             loadedAnchorVessels.Remove(pid);
 
@@ -798,7 +813,7 @@ namespace Parsek
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
-            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
 
             recorder?.OnVesselSOIChanged(data);
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
@@ -812,7 +827,7 @@ namespace Parsek
         /// </summary>
         internal bool HandleCheatTeleport(Vessel v, CelestialBody oldBody)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return true;
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return true;
             if (recorder == null)
                 return false;
             recorder.OnCheatTeleport(v, oldBody);
@@ -1220,6 +1235,12 @@ namespace Parsek
             }
 
             uint activePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
+            if (CameraDroneIdentity.IsDrone(activePid))
+            {
+                // H3 (design-far-watch.md 7.4): nothing records the far-watch camera drone.
+                ParsekLog.Info("Flight", "StartRecording refused: the active vessel is the far-watch camera drone");
+                return;
+            }
             string invalidHeadReason;
             if (!CanStartRecorderWithActiveTreeHead(activeTree, activePid, out invalidHeadReason))
             {

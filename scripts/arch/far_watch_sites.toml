@@ -1,0 +1,325 @@
+# Far-watch site allowlist (design-far-watch.md section 11.4), read by
+# scripts/arch/test_far_watch_sites.py over the compiled Debug Parsek.dll.
+#
+# One entry per (member, pattern): `count` is the number of IL instructions
+# naming the pattern in that method (lambdas and local functions folded in),
+# `codes` the audit decision codes (section 11.1), `audit` the audit rows.
+# Seeded by scripts/refactor/seed_far_watch_sites.py from audits A, B, C at
+# ba7cd9eb, counts re-read on main 7b1b7310; from then on
+# entries are keyed by member, never by line. Change an entry in the same
+# commit as the method it counts: a swap to IsGhostOrDroneVessel drops that
+# method's IsGhostMapVessel count, a PLAYER-SHIP read moved to
+# FarWatchPlayerVessel.Resolve() drops its ActiveVessel count.
+
+schema = 1
+
+[wrappers]
+# Reader wrappers: a call to one is a `wrapper` site of its caller.
+members = [
+    "Parsek.WatchModeController::GetActiveVesselSafe()",
+    "Parsek.WatchModeController::ReadActiveVesselCore()",
+    "Parsek.PredictedCrashReconcilerHost::ReadActiveVesselCore()",
+]
+
+[notWrappers]
+# Production methods returning Vessel that read ActiveVessel but are not
+# reader wrappers (their callers are not sites), each with the reason.
+"Parsek.TestCommands.ParsekTestCommandAddon::ReadActiveVesselForEditorRoute()" = "TEST-SEAM: the seam's own read for its EditorRoute verbs; the seam refuses them while far-watching (H7)"
+"Parsek.FarWatchPlayerVessel::ReadActiveVesselCore()" = "H2: the core of FarWatchPlayerVessel.Resolve, read only while no drone exists; its one caller returns the player ship, which is what a PLAYER-SHIP site wants"
+"Parsek.FlightRecorder::ResolveRecordedOrFallbackVessel(Vessel,string)" = "H5: returns the recorded vessel, and the active vessel only when the recorded one is gone and the active vessel is not the drone"
+"Parsek.FlightRecorder::ResolveResumeVessel(bool)" = "H5: the false-alarm resume target; the recorded vessel whenever the drone is active"
+
+[sites.ActiveVessel]
+"Parsek.BackgroundRecorder::ComputeDistanceToFocusedVessel(Vessel)" = { count = 1, codes = ["CAMERA-OK"], audit = "B Recording/BackgroundRecorder.Sampling.cs:681" }
+"Parsek.CameraDrone::Destroy(Vessel,string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone teardown picks RemoveVessel for an active drone, Die otherwise" }
+"Parsek.CameraDrone::IsActiveCore()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone-is-active predicate the fences read" }
+"Parsek.CameraDrone::WriteState(Vessel,CelestialBody,Vector3d,Vector3d)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone state write shifts the floating origin only while the drone is active" }
+"Parsek.FarWatchAwardScope::ReadDroneActiveCore()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the award belt asks whether the drone is the active vessel (records nodes, 10.3)" }
+"Parsek.FarWatchController::EndForTestRunnerReset(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: the test runner's immediate end reads whether the drone holds focus before it destroys it" }
+"Parsek.FarWatchController::OnDroneWillDestroy(Vessel)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone-lost branch reads whether focus had moved to the drone (7.6)" }
+"Parsek.FarWatchController::ResolveAbort()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the abort resolution reads which vessel holds focus (7.6)" }
+"Parsek.FarWatchController::RetargetCameraToActiveVessel(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: the camera net re-targets to whichever vessel holds focus (drone or ship), never a ghost (7.5)" }
+"Parsek.FarWatchController::RetargetCameraToDrone(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the same-frame camera re-target on a watch exit while the drone exists (7.5)" }
+"Parsek.FarWatchController::TryStart(int32,bool,string&)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the entry reads the player ship before the drone exists" }
+"Parsek.FarWatchPlayerVessel::ReadActiveVesselCore()" = { count = 1, codes = ["PLAYER-SHIP"], audit = "H2 (step 2): the player ship is the active vessel while no drone exists" }
+"Parsek.FlightGlobalsProvider::GetActiveVesselPid()" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "B Recording/SegmentBoundaryLogic.cs:599" }
+"Parsek.FlightRecorder::OnVesselGoOffRails(Vessel)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Recording/FlightRecorder.cs:1831" }
+"Parsek.FlightRecorder::OnVesselGoOnRails(Vessel)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Recording/FlightRecorder.cs:1626" }
+"Parsek.FlightRecorder::OnVesselSOIChanged(GameEvents/HostedFromToAction`2<Vessel,CelestialBody>)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Recording/FlightRecorder.cs:1913" }
+"Parsek.FlightRecorder::OnVesselWillDestroy(Vessel)" = { count = 2, codes = ["UNREACHABLE"], audit = "B Recording/FlightRecorder.cs:1978,1983" }
+"Parsek.FlightRecorder::ReadDeltaVReadiness(Vessel,bool)" = { count = 1, codes = ["CAMERA-OK"], audit = "B Recording/FlightRecorder.DeltaV.cs:424" }
+"Parsek.FlightRecorder::ResolveRecordedOrFallbackVessel(Vessel,string)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "H5 (step 2): the recorded vessel, else the active vessel unless it is the drone; replaces B FlightRecorder.StopAndFinalize.cs:500,535, LiveSnapshot.cs:166, ParsekFlightSplitBrancher.cs:1513" }
+"Parsek.FlightRecorder::ResolveResumeVessel(bool)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "H5 (step 2): false-alarm resume stays on the recorded vessel while the drone is active; replaces B FlightRecorder.StopAndFinalize.cs:565" }
+"Parsek.FlightRecorder::StartRecording(bool,bool)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "B Recording/FlightRecorder.StartRecording.cs:115" }
+"Parsek.GhostMapPresence::CaptureGhostTargetState(Vessel,string)" = { count = 1, codes = ["CAMERA-OK"], audit = "B Ghost/GhostMapPresence.TargetingAndSelection.cs:355" }
+"Parsek.GhostMapPresence::RemoveCameraDroneBeforeFarSwitch(Vessel)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: a far switch with a drone up removes it (RemoveVessel when active)" }
+"Parsek.GhostMapPresence::ResolveCurrentMainBody()" = { count = 1, codes = ["CAMERA-OK"], audit = "B Ghost/GhostMapPresence.TargetingAndSelection.cs:516" }
+"Parsek.GhostMapPresence::RetargetPlanetariumCameraOffDyingGhosts(System.Collections.Generic.IList`1<Vessel>,string,bool)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "B Ghost/GhostMapPresence.CameraRetarget.cs:141" }
+"Parsek.GhostPlaybackEngine::FormatActiveVesselWorldPosForLog()" = { count = 1, codes = ["CAMERA-OK"], audit = "B Ghost/GhostPlaybackEngine.LoopPlayback.cs:1824" }
+"Parsek.LedgerRolloutAdoption::TryReadActiveVesselRolloutContextCore(Parsek.LedgerRolloutAdoption/RolloutAdoptionContext&)" = { count = 1, codes = ["UNREACHABLE"], audit = "B GameActions/LedgerRolloutAdoption.cs:737" }
+"Parsek.ParsekFlight::BuildFarWatchEntryInputs(int32,bool,bool)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the far-watch entry admission reads the ship it will park" }
+"Parsek.ParsekFlight::CaptureFreshRolloutVesselPidIfApplicable()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.RecorderSession.cs:1058,1063" }
+"Parsek.ParsekFlight::ConsumeFreshRecordingAfterDiscardedRestore(bool)" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.TreeRestore.cs:497" }
+"Parsek.ParsekFlight::DeferredEvaBranch(string,GameEvents/FromToAction`2<Part,Part>)" = { count = 2, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.SplitBranching.cs:1629,1656,1657" }
+"Parsek.ParsekFlight::DeferredEvaBranchFromBackgroundParent(string,uint32,string,GameEvents/FromToAction`2<Part,Part>)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.SplitBranching.cs:1740" }
+"Parsek.ParsekFlight::DeferredJointBreakCheck()" = { count = 6, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.SplitBranching.cs:1789,1954,2008,2009,2013,2014" }
+"Parsek.ParsekFlight::DeferredKerbalLeftVehicleNotRecording(GameEvents/FromToAction`2<Part,Part>,Vessel)" = { count = 2, codes = ["UNREACHABLE"], audit = "A ParsekFlight.cs:3160,3166" }
+"Parsek.ParsekFlight::DeferredUndockBranch(uint32,uint32,System.Nullable`1<Parsek.TrajectoryPoint>,uint32)" = { count = 2, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.SplitBranching.cs:1532,1546" }
+"Parsek.ParsekFlight::DispatchConsumeIntentIfArmed()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.SwitchContinuation.cs:606" }
+"Parsek.ParsekFlight::HandleAltitudeBoundarySplit()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.RecorderSession.cs:1103,1130,1155" }
+"Parsek.ParsekFlight::HandleAtmosphereBoundarySplit()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.RecorderSession.cs:1103,1130,1155" }
+"Parsek.ParsekFlight::HandleSoiChangeSplit()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.RecorderSession.cs:1103,1130,1155" }
+"Parsek.ParsekFlight::LogFlightReadyFocusCore()" = { count = 1, codes = ["UNREACHABLE"], audit = "main after ba7cd9eb: the flight-ready focus log, once per flight scene load before any drone exists (as A ParsekFlight.cs:2104)" }
+"Parsek.ParsekFlight::OnFlightReady()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.cs:2104" }
+"Parsek.ParsekFlight::OnStageActivate(int32)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.RecorderSession.cs:576" }
+"Parsek.ParsekFlight::OnVesselSituationChange(GameEvents/HostedFromToAction`2<Vessel,Vessel/Situations>)" = { count = 2, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.RecorderSession.cs:508; A ParsekFlight.RecorderSession.cs:516" }
+"Parsek.ParsekFlight::OnVesselWillDestroy(Vessel)" = { count = 2, codes = ["UNREACHABLE"], audit = "A ParsekFlight.cs:1820; A ParsekFlight.cs:1839; kept on the active vessel (step 2 review): a far watch reaches Following only once the recorder is backgrounded or idle (UpdateHandoverOut), so the pending-split flag and the active-recorder destruction classification never concern the ship, whose loss is the far watch V2 path (FarWatchController.OnVesselWillDestroy)" }
+"Parsek.ParsekFlight::Parsek.IMergeFlowHost.ActiveVesselPersistentIdOrZero()" = { count = 2, codes = ["UNREACHABLE"], audit = "A ParsekFlight.MergeFlow.cs:49" }
+"Parsek.ParsekFlight::PostPhysicsPoseCaptureLoop()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.RecorderSession.cs:456" }
+"Parsek.ParsekFlight::RestoreActiveTreeFromPending()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.TreeRestore.cs:609" }
+"Parsek.ParsekFlight::RestoreActiveTreeFromPendingForVesselSwitch()" = { count = 4, codes = ["UNREACHABLE"], audit = "A ParsekFlight.TreeRestore.cs:1507,1515,1517,1528,1589" }
+"Parsek.ParsekFlight::RetargetStockCamerasBeforeTimelineGhostCleanup(string,string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A ParsekFlight.cs:2714" }
+"Parsek.ParsekFlight::StartRecording(bool,bool)" = { count = 8, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.RecorderSession.cs:1222,1249,1255,1277,1283,1285,1335" }
+"Parsek.ParsekFlight::StopRecording()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlight.RecorderSession.cs:1451" }
+"Parsek.ParsekFlight::SuppressCommittedSpawnedRestoreForActiveVessel(string)" = { count = 1, codes = ["TEST-SEAM"], audit = "A ParsekFlight.TreeRestore.cs:1945" }
+"Parsek.ParsekFlight::TryRestoreCommittedTreeForSpawnedActiveVessel(bool)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlight.TreeRestore.cs:115" }
+"Parsek.ParsekFlightGhostPositioner::Parsek.IGhostPositioner.TryResolveExplosionAnchorPosition(int32,Parsek.IPlaybackTrajectory,Parsek.GhostPlaybackState,UnityEngine.Vector3&)" = { count = 2, codes = ["CAMERA-OK"], audit = "A ParsekFlightGhostPositioner.cs:255,258" }
+"Parsek.ParsekFlightGhostPositioner::ResolveCameraAnchorWorldPosition()" = { count = 1, codes = ["CAMERA-OK"], audit = "A ParsekFlightGhostPositioner.cs:477" }
+"Parsek.ParsekFlightGhostPositioner::ResolveImmediateLandedGhostClearanceMeters(int32,string,string,float64,float64,float64)" = { count = 2, codes = ["CAMERA-OK"], audit = "A ParsekFlightGhostPositioner.cs:302,323" }
+"Parsek.ParsekFlightGhostPositioner::ResolvePlaybackActiveVesselDistanceForEngine(int32,Parsek.IPlaybackTrajectory,Parsek.GhostPlaybackState,float64)" = { count = 2, codes = ["CAMERA-OK"], audit = "A ParsekFlightGhostPositioner.cs:488,489" }
+"Parsek.ParsekFlightPlaybackHost::ClampGhostsToTerrain(Parsek.ParsekFlight/GhostPositionReapplyPhase)" = { count = 2, codes = ["CAMERA-OK"], audit = "A ParsekFlightPlaybackHost.cs:615,616" }
+"Parsek.ParsekFlightPlaybackHost::LogReFlySettleActiveVesselPoseIfArmed(string,int32)" = { count = 4, codes = ["UNREACHABLE"], audit = "A ParsekFlightPlaybackHost.cs:1504,1505,1510; kept (step 2 review): the settle log is armed only inside a Re-Fly session, and the far-watch entry refuses while one is active (refly-active)" }
+"Parsek.ParsekFlightPlaybackHost::PositionClaimedVesselHoldGhost(Parsek.ParsekFlight/ClaimedVesselHoldGhostState,float64)" = { count = 1, codes = ["CAMERA-OK"], audit = "A ParsekFlightPlaybackHost.cs:3216" }
+"Parsek.ParsekFlightPlaybackHost::UpdateTimelinePlaybackViaEngine()" = { count = 2, codes = ["CAMERA-OK"], audit = "A ParsekFlightPlaybackHost.cs:1945,1946" }
+"Parsek.ParsekFlightPostSwitchAutoRecord::HandleDeferredAutoRecordEva()" = { count = 4, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlightPostSwitchAutoRecord.cs:1649,1654,1657" }
+"Parsek.ParsekFlightSpawnHost::CleanupOrphanedSpawnedVessels(System.Collections.Generic.IReadOnlyList`1<Parsek.Recording>,System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlightSpawnHost.cs:319" }
+"Parsek.ParsekFlightSpawnHost::DetermineRecordingBlockReason()" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlightSpawnHost.cs:686" }
+"Parsek.ParsekFlightSpawnHost::EvaluateLeavesMoveGateForScan(Parsek.Recording,float64,float64)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlightSpawnHost.cs:1396" }
+"Parsek.ParsekFlightSpawnHost::EvaluateReadyMoveGateForScan(Parsek.Recording,float64)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlightSpawnHost.cs:1406" }
+"Parsek.ParsekFlightSpawnHost::UpdateProximityCheck()" = { count = 3, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlightSpawnHost.cs:772,774,775" }
+"Parsek.ParsekFlightSpawnHost::WarpToDeparture(int32,float64)" = { count = 1, codes = ["GREY"], audit = "A ParsekFlightSpawnHost.cs:1161" }
+"Parsek.ParsekFlightSpawnHost::WarpToRecordingEnd(int32)" = { count = 1, codes = ["GREY"], audit = "A ParsekFlightSpawnHost.cs:1020" }
+"Parsek.ParsekFlightSplitBrancher::CreateSplitBranchFromBackgroundParent(string,uint32,Vessel,Vessel,float64,string,uint32,string)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlightSplitBrancher.cs:665,669" }
+"Parsek.ParsekFlightSplitBrancher::HandleTreeBoardMerge()" = { count = 4, codes = ["UNREACHABLE"], audit = "A ParsekFlightSplitBrancher.cs:3492,3493,3506,3515" }
+"Parsek.ParsekFlightSplitBrancher::TryPromoteEvaRecordingForBoardMerge(Vessel)" = { count = 2, codes = ["UNREACHABLE"], audit = "A ParsekFlightSplitBrancher.cs:2374,2375" }
+"Parsek.ParsekFlightSurfaceCapture::OnModuleInventorySlotChanged(ModuleInventoryPart,int32)" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlightSurfaceCapture.cs:412" }
+"Parsek.ParsekFlightSurfaceCapture::RecordForeignConstructionChange(Vessel,Part,bool)" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlightSurfaceCapture.cs:511" }
+"Parsek.ParsekFlightSurfaceCapture::RecordGroundPartPlacement(string,Parsek.GroundPartPlacementSource)" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlightSurfaceCapture.cs:215" }
+"Parsek.ParsekFlightSurfaceCapture::TryAdoptForeignConstructionPickup(Vessel)" = { count = 1, codes = ["UNREACHABLE"], audit = "A ParsekFlightSurfaceCapture.cs:631" }
+"Parsek.ParsekFlightSwitchContinuation::HandleMissedVesselSwitchRecovery()" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A ParsekFlightSwitchContinuation.cs:1653 (the drone skip is its IsGhostOrDroneVessel check); the PLAYER-SHIP read at :1614 reads FarWatchPlayerVessel.Resolve()" }
+"Parsek.Patches.CheatTeleportPatch::Postfix(CelestialBody)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "B Patches/CheatTeleportPatch.cs:24" }
+"Parsek.Patches.FlagPickUpCapturePatch::Prefix(FlagSite)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Patches/FlagPickUpCapturePatch.cs:18" }
+"Parsek.Patches.FlightResultsDialogLogPatches::ActiveVesselName()" = { count = 1, codes = ["CAMERA-OK"], audit = "B Patches/FlightResultsDialogLogPatches.cs:70" }
+"Parsek.Patches.MapFocusObjectOnSelectPatch::ReadClearToSaveStatus()" = { count = 1, codes = ["CAMERA-OK"], audit = "B Patches/MapFocusObjectOnSelectPatch.cs:797" }
+"Parsek.Patches.PhysicsFramePatch::Postfix(VesselPrecalculate)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "B Patches/PhysicsFramePatch.cs:81" }
+"Parsek.Patches.VesselCycleReFlySwitchPatch::RunCycle(bool,Parsek.Patches.VesselCycleReFlySwitchPatch/CycleReport)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "B Patches/VesselCycleReFlySwitchPatch.cs:245" }
+"Parsek.RewindInvoker::ForceStageManagerRebuildAfterReFlyLoad(Parsek.PostLoadStripResult,string)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Rewind/RewindInvoker.StripActivate.cs:531" }
+"Parsek.TestCommands.EvaConstructionInputInjection::PoseAndCheck(EVAConstructionModeEditor,Parsek.TestCommands.EvaConstructionAttachPose)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaConstruction.cs:370" }
+"Parsek.TestCommands.PartParityBurstDriver::KillVesselsWithParts(System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["TEST-SEAM"], audit = "TestCommands/PartParityBurstDriver.cs:1192 (main, after the audits): skips the active vessel when killing burst case vessels; reached only from the PartParitySweep seam verb, which the seam refuses while far-watching (H7)" }
+"Parsek.TestCommands.ParsekTestCommandAddon::ActiveVesselPidOrZero()" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs:426" }
+"Parsek.TestCommands.ParsekTestCommandAddon::ArmActiveVesselWatch(string,string)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.ActiveVesselLoss.cs:24" }
+"Parsek.TestCommands.ParsekTestCommandAddon::BuildDispatchState(Parsek.TestCommands.ParsedCommand)" = { count = 2, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.cs:1572" }
+"Parsek.TestCommands.ParsekTestCommandAddon::CrewTransferImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.CrewTransfer.cs:41" }
+"Parsek.TestCommands.ParsekTestCommandAddon::CycleVesselImpl(Parsek.TestCommands.ParsedCommand)" = { count = 7, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.CycleVessel.cs:26; B TestCommands/ParsekTestCommandAddon.CycleVessel.cs:48; B TestCommands/ParsekTestCommandAddon.CycleVessel.cs:65; B TestCommands/ParsekTestCommandAddon.CycleVessel.cs:74" }
+"Parsek.TestCommands.ParsekTestCommandAddon::DriveVesselImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.DriveVessel.cs:102" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaBoardImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.Eva.cs:861" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaChuteDeployImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaChute.cs:54" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaExitImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.Eva.cs:116" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaGroundScienceImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaGroundScience.cs:233" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaMoveImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaMove.cs:51" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaSeatBoardImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaSeat.cs:33" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaSeatLeaveImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaSeat.cs:173" }
+"Parsek.TestCommands.ParsekTestCommandAddon::PartActionImpl(Parsek.TestCommands.ParsedCommand)" = { count = 3, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.PartAction.cs:94; B TestCommands/ParsekTestCommandAddon.PartAction.cs:332; B TestCommands/ParsekTestCommandAddon.PartAction.cs:463" }
+"Parsek.TestCommands.ParsekTestCommandAddon::PartParitySweepImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.PartParitySweep.cs:50" }
+"Parsek.TestCommands.ParsekTestCommandAddon::PickUpFlagImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.PickUpFlag.cs:29" }
+"Parsek.TestCommands.ParsekTestCommandAddon::PlantFlagImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.Eva.cs:552" }
+"Parsek.TestCommands.ParsekTestCommandAddon::ReadActiveVesselForEditorRoute()" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EditorRoute.cs:500" }
+"Parsek.TestCommands.ParsekTestCommandAddon::RemoveDriveVesselCallback()" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.DriveVessel.cs:623" }
+"Parsek.TestCommands.ParsekTestCommandAddon::RenamePartNaming(Vessel,string,string,int32)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.RenameVessel.cs:138" }
+"Parsek.TestCommands.ParsekTestCommandAddon::RenameVesselImpl(Parsek.TestCommands.ParsedCommand)" = { count = 2, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.RenameVessel.cs:43; B TestCommands/ParsekTestCommandAddon.RenameVessel.cs:67" }
+"Parsek.TestCommands.ParsekTestCommandAddon::RevertToLaunchImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.RevertToLaunch.cs:54" }
+"Parsek.TestCommands.ParsekTestCommandAddon::RevertToPrelaunchImpl(bool,Game)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.RevertToLaunch.cs:98" }
+"Parsek.TestCommands.ParsekTestCommandAddon::SafeMaxRateIndexForActiveVessel()" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.WarpToUT.cs:821" }
+"Parsek.TestCommands.ParsekTestCommandAddon::SampleFlyLoading(Parsek.TestCommands.ParsekTestCommandAddon/FlyClickSample&)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.SimulateSwitchClickFly.cs:199" }
+"Parsek.TestCommands.ParsekTestCommandAddon::SampleRecoverGate(uint32,Vessel&,UnityEngine.UI.Button&,string&)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.Recover.cs:108" }
+"Parsek.TestCommands.ParsekTestCommandAddon::SpinVesselImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.SpinVessel.cs:22" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteCrashDrive(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.DriveVessel.cs:329" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteDockDrive(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.DriveVessel.cs:398" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteEvaBoard(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.Eva.cs:928" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteEvaExit(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.Eva.cs:220" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteEvaSeatBoard(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaSeat.cs:134" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteEvaSeatLeave(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaSeat.cs:237" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteLoadGame(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.cs:1288" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TryCompleteRevertToLaunch(float64)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.RevertToLaunch.cs:188" }
+"Parsek.TestCommands.PartParitySweepRunner::AdmitHost(Parsek.TestCommands.PartParitySweepRunner/StepContext)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/PartParitySweepRunner.cs:313" }
+"Parsek.TestCommands.PartParitySweepRunner::DestroyCase(Parsek.TestCommands.PartParitySweepRunner/WaveCase)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/PartParitySweepRunner.cs:938" }
+"Parsek.TestCommands.PartParitySweepRunner::ObserveHost(uint32)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/PartParitySweepRunner.cs:232" }
+"Parsek.TestCommands.PartParitySweepRunner::StepCore(Parsek.TestCommands.PartParitySweepRunner/StepContext)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/PartParitySweepRunner.cs:193" }
+"Parsek.TimeJumpManager::ExecutePlacement(Parsek.PlacementPlan,Parsek.FlightRecorder,Parsek.BackgroundRecorder)" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "A TimeJumpManager.Placement.cs:968" }
+"Parsek.TimeJumpManager::NotifyRecorder(Parsek.FlightRecorder,float64,float64)" = { count = 1, codes = ["UNREACHABLE"], audit = "A TimeJumpManager.cs:370" }
+"Parsek.WatchModeController::BuildWatchFocusSummary(Parsek.GhostPlaybackState)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:640" }
+"Parsek.WatchModeController::DescribeWatchEligibilityForLogs(int32)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:684" }
+"Parsek.WatchModeController::DrawWatchModeOverlay()" = { count = 2, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:1091,1095" }
+"Parsek.WatchModeController::EnterWatchMode(int32)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:1703" }
+"Parsek.WatchModeController::IsGhostOnSameBody(int32)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:946" }
+"Parsek.WatchModeController::OnVesselWillDestroy(Vessel)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:3939" }
+"Parsek.WatchModeController::ReadActiveVesselCore()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.Runtime.cs:46" }
+"Parsek.WatchModeController::ResolveWatchDistanceMeters(Parsek.GhostPlaybackState)" = { count = 2, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:620,624" }
+"Parsek.WatchModeController::SamplePostExitCameraCore(string&)" = { count = 1, codes = ["CAMERA-OK"], audit = "A WatchModeController.ExitCameraProbe.cs:113" }
+"Parsek.WatchModeController::TryResolveWatchEntryState(int32,System.Collections.Generic.IReadOnlyList`1<Parsek.Recording>,Parsek.Recording&,Parsek.GhostPlaybackState&)" = { count = 2, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:1833,1839" }
+
+[sites.IsGhostMapVessel]
+"Parsek.ChainTipStaleVessel::FindLiveVessel(uint32,Vessel&,ProtoVessel&)" = { count = 2, codes = ["DRONE-NA"], audit = "C Recording/ChainTipStaleVessel.cs:1036; C Recording/ChainTipStaleVessel.cs:1051" }
+"Parsek.ClaimedVesselDisposalGate::FindHeldLive(System.Collections.Generic.IList`1<ProtoVessel>,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/ClaimedVesselDisposalGate.cs:153" }
+"Parsek.ClaimedVesselDisposalGate::IsHeldLive(Vessel,string,Parsek.GhostChain&)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/ClaimedVesselDisposalGate.cs:79" }
+"Parsek.ConverterJumpPolicy::Apply(float64,float64,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ConverterJumpPolicy.cs:177" }
+"Parsek.CrewReservationManager::RemoveReservedEvaVessels(System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["DRONE-NA"], audit = "C Crew/CrewReservationManager.cs:761" }
+"Parsek.GhostMapPresence::DescribeVessel(Vessel)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.TargetingAndSelection.cs:479" }
+"Parsek.GhostMapPresence::RemoveAllGhostVesselsBeforeFarSwitch(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "main after ba7cd9eb: the far Switch-To pre-stock ghost strip; a target is never the drone, and focus moves only between loaded vessels while it exists (7.3)" }
+"Parsek.GhostPlaybackLogic::AnyLiveRealVesselSharesRecordedCraft(Parsek.Recording)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostPlaybackLogic.SpawnDecision.cs:819, 862" }
+"Parsek.GhostPlaybackLogic::FlagExistsAtPosition(Parsek.FlagEvent,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostPlaybackLogic.PartEvents.cs:1617" }
+"Parsek.GhostPlaybackLogic::RealVesselExists(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostPlaybackLogic.cs:210" }
+"Parsek.GhostPlaybackLogic::RemoveStandingFlagsLive(Parsek.RemovedReplayFlags/Tombstone)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostPlaybackLogic.PartEvents.cs:1509" }
+"Parsek.GhostPlaybackLogic::ResolveLiveVesselGuid(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostPlaybackLogic.cs:342" }
+"Parsek.KerbalsModule/KerbalRosterFacade::IsKerbalOnLiveVessel(string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Crew/KerbalsModule.Roster.cs:278" }
+"Parsek.KerbalsModule/KerbalRosterFacade::IsKerbalOnVesselWithPid(string,uint64)" = { count = 1, codes = ["DRONE-NA"], audit = "C Crew/KerbalsModule.Roster.cs:325" }
+"Parsek.KerbalsWindowUI::GatherAssignedVessels(System.Collections.Generic.HashSet`1<string>)" = { count = 1, codes = ["DRONE-NA"], audit = "C UI/KerbalsWindowUI.cs:1133" }
+"Parsek.LiveClaimedVesselRemovalTarget::RemoveFlightStateEntries(System.Collections.Generic.IList`1<ProtoVessel>,ProtoVessel,uint32,System.Guid)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ClaimedVesselRemoval.cs:250" }
+"Parsek.MapGeometryRecorder::CaptureProtoGhosts(Parsek.MapGeometryDocument,int32,float64,float64,System.Collections.Generic.Dictionary`2<string,CelestialBody>,System.Collections.Generic.Dictionary`2<string,System.Collections.Generic.List`1<Parsek.MapGeometryGhost>>,System.Collections.Generic.Dictionary`2<string,uint32>,Parsek.MapGeometryDecisions/CaptureSummary)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/MapGeometryRecorder.cs:339" }
+"Parsek.ParsekFlight::ConsumeFreshRecordingAfterDiscardedRestore(bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlight.TreeRestore.cs:502" }
+"Parsek.ParsekFlight::DeferredActivateVessel(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlight.cs:3056" }
+"Parsek.ParsekFlight::DispatchConsumeIntentIfArmed()" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlight.SwitchContinuation.cs:608" }
+"Parsek.ParsekFlight::OnVesselSwitchComplete(Vessel)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Controllers/ParsekFlight.SwitchContinuation.cs:58" }
+"Parsek.ParsekFlightSpawnHost::CleanupOrphanedSpawnedVessels(System.Collections.Generic.IReadOnlyList`1<Parsek.Recording>,System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlightSpawnHost.cs:334" }
+"Parsek.ParsekFlightSplitBrancher::TryPromoteEvaRecordingForBoardMerge(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlightSplitBrancher.cs:2385" }
+"Parsek.ParsekFlightSurfaceCapture::OnModuleInventorySlotChanged(ModuleInventoryPart,int32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlightSurfaceCapture.cs:431" }
+"Parsek.ParsekFlightSurfaceCapture::RecordForeignConstructionChange(Vessel,Part,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlightSurfaceCapture.cs:530" }
+"Parsek.ParsekFlightSurfaceCapture::TryAdoptForeignConstructionPickup(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekFlightSurfaceCapture.cs:650" }
+"Parsek.ParsekScenario::FindHeldProtoVesselIndex(System.Collections.Generic.List`1<ProtoVessel>,uint32,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekScenario.RewindVesselHold.cs:209" }
+"Parsek.ParsekScenario::NoteFlagProtoRemoved(ProtoVessel,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekScenario.RemovedReplayFlags.cs:82" }
+"Parsek.ParsekScenario::NoteFlagVesselRemoved(Vessel,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekScenario.RemovedReplayFlags.cs:49" }
+"Parsek.ParsekScenario::StripOrphanedSpawnedVessels(System.Collections.Generic.List`1<ProtoVessel>,System.Collections.Generic.IReadOnlyList`1<Parsek.Recording>,bool,bool,bool,System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekScenario.VesselStrip.cs:137" }
+"Parsek.ParsekTrackingStation::FindGhostVessel(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/ParsekTrackingStation.cs:3040" }
+"Parsek.Patches.GhostIconClickPatch::Prefix(OrbitRendererBase,Mouse/Buttons)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostVesselLoadPatch.cs:256" }
+"Parsek.Patches.GhostOrbitArcPatch::Prefix(OrbitRendererBase)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitLinePatch.cs:1440" }
+"Parsek.Patches.GhostOrbitIconDrivePatch::Prefix(OrbitDriver,bool,float64&)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitLinePatch.cs:159" }
+"Parsek.Patches.GhostOrbitLinePatch::Postfix(OrbitRendererBase)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitLinePatch.cs:881" }
+"Parsek.Patches.GhostTrackingBuildVesselsListPatch::CreateBuildVesselsListExceptionContext()" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:437" }
+"Parsek.Patches.GhostTrackingDeletePatch::Prefix(KSP.UI.Screens.SpaceTracking)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:757" }
+"Parsek.Patches.GhostTrackingFlyPatch::Prefix(KSP.UI.Screens.SpaceTracking,Vessel)" = { count = 2, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:625, 635" }
+"Parsek.Patches.GhostTrackingRecoverPatch::Prefix(KSP.UI.Screens.SpaceTracking)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:888" }
+"Parsek.Patches.GhostTrackingSetVesselPatch::Postfix(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:847" }
+"Parsek.Patches.GhostTrackingSetVesselPatch::Prefix(KSP.UI.Screens.SpaceTracking,Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:800" }
+"Parsek.Patches.GhostTrackingVesselIconClickPatch::Postfix(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:860" }
+"Parsek.Patches.GhostVesselForceSwitchPatch::ShouldRefuse(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostVesselLoadPatch.cs:585" }
+"Parsek.Patches.GhostVesselLoadPatch::Prefix(Vessel)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostVesselLoadPatch.cs:422" }
+"Parsek.Patches.GhostVesselLoadedInertPatch::ShouldMakeInert(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostVesselLoadPatch.cs:465; kept on the ghost set (step 2 review): the Postfix sends the drone (pid and guid) to CameraDrone.MakeInert before this ghost-only hardening is asked" }
+"Parsek.Patches.GhostVesselSwitchPatch::Prefix(Vessel)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostVesselLoadPatch.cs:519" }
+"Parsek.Patches.KscVesselMarkerFlyPatch::Prefix(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/KscVesselMarkerFlyPatch.cs:48" }
+"Parsek.Patches.PartMassivePartCheckSeederPatch::PrefixMassivePartCheck(Part)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/PartMassivePartCheckSeederPatch.cs:130" }
+"Parsek.Patches.SwitchIntentTrackingStationFlyPatch::Prefix(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Patches/GhostTrackingStationPatch.cs:696" }
+"Parsek.PostLoadStripper::Strip(Parsek.RewindPoint,int32,Parsek.IVesselEnumeration,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Rewind/PostLoadStripper.cs:111" }
+"Parsek.PredictedCrashReconcilerHost::BuildLiveVesselsByGuid()" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/PredictedCrashReconcilerHost.cs:339" }
+"Parsek.RewindInvoker::StripDisabledSlotVessels(Parsek.RewindPoint,int32,uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Rewind/RewindInvoker.SlotStrip.cs:29" }
+"Parsek.RewindInvoker::StripPreExistingDebrisForInPlaceContinuation(Parsek.PostLoadStripResult)" = { count = 1, codes = ["DRONE-NA"], audit = "C Rewind/RewindInvoker.InPlaceDebris.cs:584" }
+"Parsek.RewindInvoker::WarnOnLeftAloneNameCollisions(Parsek.PostLoadStripResult)" = { count = 1, codes = ["DRONE-NA"], audit = "C Rewind/RewindInvoker.SlotStrip.cs:244" }
+"Parsek.SpawnCollisionDetector::TryFindLoadedRockBlocker(Vector3d,UnityEngine.Bounds,float32,CelestialBody,Parsek.SpawnRockBlocker&)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/SpawnCollisionDetector.OrbitClearance.cs:292" }
+"Parsek.SpawnCollisionDetector::TryFindUnloadedRockBlocker(Vector3d,UnityEngine.Bounds,float32,float64,CelestialBody,Parsek.SpawnRockBlocker&)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/SpawnCollisionDetector.OrbitClearance.cs:326" }
+"Parsek.TestCommands.ParsekTestCommandAddon::EvaSeatBoardImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.EvaSeat.cs:48" }
+"Parsek.TestCommands.ParsekTestCommandAddon::FindEvaMoveReference(Vessel,float64&)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.EvaMove.cs:241" }
+"Parsek.TestCommands.ParsekTestCommandAddon::FindRealVesselByPid(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.TrackingStationRecover.cs:397" }
+"Parsek.TestCommands.ParsekTestCommandAddon::KscMarkerRecoverImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.KscMarkerRecover.cs:74" }
+"Parsek.TestCommands.ParsekTestCommandAddon::PickUpFlagImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.PickUpFlag.cs:55" }
+"Parsek.TestCommands.ParsekTestCommandAddon::ReadNearestOtherLoadedVesselMetres(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.Eva.cs:393" }
+"Parsek.TestCommands.ParsekTestCommandAddon::ReadRenameIdentity(Vessel,int32&,Parsek.VesselNameDecision&)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.RenameVessel.cs:190" }
+"Parsek.TestCommands.ParsekTestCommandAddon::TrackingStationRecoverImpl(Parsek.TestCommands.ParsedCommand)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/ParsekTestCommandAddon.TrackingStationRecover.cs:61" }
+"Parsek.TimeJumpManager::CaptureOrbitalStates()" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/TimeJumpManager.cs:489" }
+"Parsek.TimeJumpManager::CollectDestinationOthers(System.Collections.Generic.List`1<Parsek.PlacementMember>,CelestialBody,float64)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/TimeJumpManager.Placement.cs:776" }
+"Parsek.TimeJumpManager::CollectGroup(Vessel,Parsek.Recording,System.Collections.Generic.List`1<Parsek.PlacementMember>,bool&,string&)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/TimeJumpManager.Placement.cs:713" }
+"Parsek.TimeJumpManager::PutLoadedVesselsOnRails()" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/TimeJumpManager.cs:572" }
+"Parsek.VesselNameLiveSync::OnDockCouple(Vessel,Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Missions/VesselNameLiveSync.cs:649" }
+"Parsek.VesselNameLiveSync::OnUndockSplit(Vessel)" = { count = 1, codes = ["DRONE-NA"], audit = "C Missions/VesselNameLiveSync.cs:678" }
+"Parsek.VesselSpawner::BuildExistingCrewHolders()" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/VesselSpawner.CrewRoster.cs:466" }
+"Parsek.VesselSpawner::LoadedRealVesselExists(uint32,string&)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/VesselSpawner.SourceIdentity.cs:375" }
+"Parsek.VesselSpawner::MaterializedSourceVesselExists(Parsek.Recording,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/VesselSpawner.SourceIdentity.cs:331" }
+"Parsek.VesselSpawner::MaterializedSourceVesselExists(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/VesselSpawner.SourceIdentity.cs:310" }
+"Parsek.VesselSpawner::ProtoVesselExists(uint32,string&)" = { count = 1, codes = ["DRONE-NA"], audit = "C Controllers/VesselSpawner.SourceIdentity.cs:408" }
+
+[sites.ghostMapVesselPids]
+"Parsek.GhostMapPresence::.cctor()" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.cs:196" }
+"Parsek.GhostMapPresence::BuildAndLoadGhostProtoVesselCore(Parsek.IPlaybackTrajectory,Orbit,CelestialBody,string,string,string)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:1770" }
+"Parsek.GhostMapPresence::ComputeActiveVesselIdxForStrip(System.Collections.Generic.List`1<ProtoVessel>,int32,bool,uint32,System.Guid,System.Guid,Parsek.GhostMapPresence/ActiveVesselIdxOutcome&)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "step 2: the save strip active-index repair (the only overload); targets the ship by Guid (C GhostMapPresence.ProtoVesselLifecycle.cs:1295, 1299)" }
+"Parsek.GhostMapPresence::ComputeActiveVesselIdxForStripWithoutShip(System.Collections.Generic.List`1<ProtoVessel>,int32,uint32,System.Guid,bool)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "step 2 review: the strip with no ship to point at (ship lost, 7.6 V2, or the scene-exit leftovers) counts the ghosts and the drone it removes" }
+"Parsek.GhostMapPresence::CreateOverlapInstanceVessel(int32,Parsek.Recording,int64,float64,float64,Parsek.GhostMapPresence/TrackingStationGhostSource&,Parsek.OrbitSegment&,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.OverlapInstances.cs:584, 691, 767" }
+"Parsek.GhostMapPresence::GhostOrDronePidSet()" = { count = 3, codes = ["DRONE-DIFFERENT"], audit = "step 2 review: the ghost set plus the drone pid for the pure resolvers that take an exclusion set (RouteEndpointResolver)" }
+"Parsek.GhostMapPresence::IsGhostMapVessel(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.cs:733, 735" }
+"Parsek.GhostMapPresence::IsGhostOrDroneVessel(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "H1 (step 2): the ghost-or-drone helper itself" }
+"Parsek.GhostMapPresence::RegisterGhostMapVesselPidForTesting(uint32)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.cs:741" }
+"Parsek.GhostMapPresence::RemoveAllGhostVessels(string,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:353" }
+"Parsek.GhostMapPresence::RemoveAllGhostVesselsBeforeFarSwitch(Vessel)" = { count = 2, codes = ["DRONE-NA"], audit = "main after ba7cd9eb: the far Switch-To pre-stock ghost strip (ghost-set bookkeeping); no unloaded switch happens while the drone exists (7.3)" }
+"Parsek.GhostMapPresence::RemoveAllGhostVesselsBeforeStockFly(uint32)" = { count = 2, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:482, 512" }
+"Parsek.GhostMapPresence::RemoveGhostProtoVessel(ProtoVessel,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:2027" }
+"Parsek.GhostMapPresence::RemoveGhostVessel(uint32,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:225" }
+"Parsek.GhostMapPresence::RemoveGhostVesselForRecording(int32,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:779" }
+"Parsek.GhostMapPresence::RemoveOverlapInstance(int32,int64,string)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.OverlapInstances.cs:584, 691, 767" }
+"Parsek.GhostMapPresence::RemoveRegisteredGhostVesselsBeforeTestReset(string)" = { count = 2, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.cs:1435, 1483" }
+"Parsek.GhostMapPresence::ResetBetweenTestRuns(string)" = { count = 2, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.cs:1513, 1527, 1552" }
+"Parsek.GhostMapPresence::ResetForTesting()" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.cs:1252" }
+"Parsek.GhostMapPresence::StripFromSave(FlightState)" = { count = 3, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:1295, 1299" }
+"Parsek.GhostMapPresence::get_RegisteredGhostMapVesselCount()" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.cs:257" }
+"Parsek.MapGeometryRecorder::CaptureProtoGhosts(Parsek.MapGeometryDocument,int32,float64,float64,System.Collections.Generic.Dictionary`2<string,CelestialBody>,System.Collections.Generic.Dictionary`2<string,System.Collections.Generic.List`1<Parsek.MapGeometryGhost>>,System.Collections.Generic.Dictionary`2<string,uint32>,Parsek.MapGeometryDecisions/CaptureSummary)" = { count = 1, codes = ["DRONE-NA"], audit = "C TestCommands/MapGeometryRecorder.cs:328" }
+"Parsek.MapRender.GhostMapSceneBase::get_GhostPids()" = { count = 1, codes = ["DRONE-NA"], audit = "C MapRender/GhostMapSceneBase.cs:35" }
+"Parsek.MapRenderProbe::EmitMapSceneSnapshot(int32,float64,string,string)" = { count = 2, codes = ["DRONE-DIFFERENT"], audit = "C MapRender/MapRenderProbe.cs:500, 501" }
+"Parsek.MapRenderProbe::LateUpdate()" = { count = 1, codes = ["DRONE-NA"], audit = "C MapRender/MapRenderProbe.cs:309, 311" }
+"Parsek.ParsekScenario::StripGhostMapVesselsFailClosed(FlightState,string,string,bool)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Controllers/ParsekScenario.Save.cs:33" }
+"Parsek.Patches.GhostOrbitDominantBodyPatch::ShouldSkipDominantBodyCheck(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitDominantBodyPatch.cs:50" }
+
+[sites.wrapper]
+"Parsek.PredictedCrashReconcilerHost::ReadLiveFacts(Parsek.Recording,System.Collections.Generic.Dictionary`2<string,Vessel>,float64)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "A PredictedCrashReconcilerHost.cs:363; the wrapper now answers FarWatchPlayerVessel.Resolve() (step 2 review)" }
+"Parsek.WatchModeController::GetActiveVesselSafe()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.Runtime.cs:46 (the wrapper's own hand-off to ReadActiveVesselCore, passed as a delegate to the exception guard; the row decides the read behind it)" }
+"Parsek.WatchModeController::IsActiveVesselCameraDrone()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: a watch exit skips the camera restore only while the drone is the active vessel (7.5)" }
+"Parsek.WatchModeController::RestoreCameraAfterWatchExit(bool)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:2058, 2116" }
+"Parsek.WatchModeController::RestoreCameraToAnchorVessel(Vessel,float32,float32,float32,string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:2058, 2116" }
+
+[handlers]
+# A vessel GameEvent handler calls one of these (any overload) or is exempt.
+guards = [
+    "Parsek.GhostMapPresence::IsGhostOrDroneVessel",
+    "Parsek.CameraDrone::Is",
+]
+
+[handlers.entries]
+"Parsek.BackgroundRecorder::OnBackgroundPartDie(Part)" = { events = ["onPartDie"], status = "guard" }
+"Parsek.FlightRecorder::OnPartDie(Part)" = { events = ["onPartDie"], status = "guard" }
+"Parsek.GameStateRecorder::OnVesselRecoveryProcessingForExperience(ProtoVessel,KSP.UI.Screens.MissionRecoveryDialog,float32)" = { events = ["onVesselRecoveryProcessing"], status = "guard" }
+"Parsek.KerbalsWindowUI::OnCrewBoardEvent(GameEvents/FromToAction`2<Part,Part>)" = { events = ["onCrewBoardVessel"], status = "exempt", reason = "marks the crew view dirty only; the drone has no crew and no seat" }
+"Parsek.KerbalsWindowUI::OnCrewEvaEvent(GameEvents/FromToAction`2<Part,Part>)" = { events = ["onCrewOnEva"], status = "exempt", reason = "marks the crew view dirty only; the drone has no crew" }
+"Parsek.KerbalsWindowUI::OnCrewVesselChangeEvent(Vessel)" = { events = ["onVesselChange"], status = "exempt", reason = "marks the crew view dirty only; the drone has no crew (audit C section 2 row 12, CAMERA-OK)" }
+"Parsek.KerbalsWindowUI::OnCrewVesselEvent(Vessel)" = { events = ["onVesselCrewWasModified"], status = "exempt", reason = "marks the crew view dirty only; the drone has no crew" }
+"Parsek.ParsekFlight::OnCrewBoardVessel(GameEvents/FromToAction`2<Part,Part>)" = { events = ["onCrewBoardVessel"], status = "exempt", reason = "the drone has no crew and no seat, so nobody boards it (audit C, adjacent subscribers)" }
+"Parsek.ParsekFlight::OnCrewOnEva(GameEvents/FromToAction`2<Part,Part>)" = { events = ["onCrewOnEva"], status = "exempt", reason = "the drone has no crew, so no EVA leaves it (audit C, adjacent subscribers)" }
+"Parsek.ParsekFlight::OnNewVesselCreatedForGroundPart(Vessel)" = { events = ["onNewVesselCreated"], status = "guard" }
+"Parsek.ParsekFlight::OnStageActivate(int32)" = { events = ["onStageActivate"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselGoOffRails(Vessel)" = { events = ["onVesselGoOffRails"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselGoOnRails(Vessel)" = { events = ["onVesselGoOnRails"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselLoaded(Vessel)" = { events = ["onVesselLoaded"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselSOIChanged(GameEvents/HostedFromToAction`2<Vessel,CelestialBody>)" = { events = ["onVesselSOIChanged"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselSituationChange(GameEvents/HostedFromToAction`2<Vessel,Vessel/Situations>)" = { events = ["onVesselSituationChange"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselSwitchComplete(Vessel)" = { events = ["onVesselChange"], status = "exempt", reason = "real branch H8a: the drone arrival runs the background transition, then returns before consume / arm" }
+"Parsek.ParsekFlight::OnVesselSwitchingToUnloaded(Vessel,Vessel)" = { events = ["onVesselSwitchingToUnloaded"], status = "exempt", reason = "stock fires it only for an unloaded target; far watch switches between loaded vessels only (7.3)" }
+"Parsek.ParsekFlight::OnVesselUnloaded(Vessel)" = { events = ["onVesselUnloaded"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselWasModified(Vessel)" = { events = ["onVesselWasModified"], status = "guard" }
+"Parsek.ParsekFlight::OnVesselWillDestroy(Vessel)" = { events = ["onVesselWillDestroy"], status = "exempt", reason = "real branch H8b: the drone's own destroy goes to OnDroneLost" }
+"Parsek.ParsekFlight::OnVesselsUndocking(Vessel,Vessel)" = { events = ["onVesselsUndocking"], status = "exempt", reason = "the drone has no docking port and never docks (audit C, adjacent subscribers)" }
+"Parsek.ParsekScenario::OnVesselRecovered(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "guard" }
+"Parsek.ParsekScenario::OnVesselRecoveryProcessing(ProtoVessel,KSP.UI.Screens.MissionRecoveryDialog,float32)" = { events = ["onVesselRecoveryProcessing"], status = "guard" }
+"Parsek.ParsekScenario::OnVesselRecoveryProcessingComplete(ProtoVessel,KSP.UI.Screens.MissionRecoveryDialog,float32)" = { events = ["onVesselRecoveryProcessingComplete"], status = "guard" }
+"Parsek.ParsekScenario::OnVesselSwitching(Vessel,Vessel)" = { events = ["onVesselSwitching"], status = "guard" }
+"Parsek.ParsekScenario::OnVesselTerminated(ProtoVessel)" = { events = ["onVesselTerminated"], status = "guard" }
+"Parsek.PostFlightDialogLogHost::OnVesselRecoveryProcessing(ProtoVessel,KSP.UI.Screens.MissionRecoveryDialog,float32)" = { events = ["onVesselRecoveryProcessing"], status = "exempt", reason = "names the recovered vessel in the recovery dialog log only; the drone is never recovered" }
+"Parsek.TestCommands.PartParityBurstDriver::OnPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer of a PartParitySweep burst trial (records died part pids only); the seam refuses its verbs while far-watching (H7)" }
+"Parsek.TestCommands.ParsekTestCommandAddon::OnDriveVesselPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
+"Parsek.TestCommands.ParsekTestCommandAddon::OnKscRecoverRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
+"Parsek.TestCommands.ParsekTestCommandAddon::OnRecoverSeamRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
+"Parsek.TestCommands.ParsekTestCommandAddon::OnTsRecoverRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
+"Parsek.ParsekFlight::OnVesselSwitchingForFarWatch(Vessel,Vessel)" = { events = ["onVesselSwitching"], status = "exempt", reason = "far watch own camera capture at each hand-over switch (7.7); it reads the two vessels, it records nothing" }

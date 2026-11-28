@@ -21,6 +21,8 @@
   "Parsek.InGameTests.FairingGhostAuthoring::BuildFairingVessel -> Info(arg 2)",
   "Parsek.InGameTests.FairingGhostAuthoring::BuildSkirtVessel -> Info(arg 2)",
   "Parsek.InGameTests.GhostCoOrbitalRig::SpawnCoOrbital -> Info(arg 4)",
+  "Parsek.InGameTests.GhostCoOrbitalRig::SpawnCoOrbital -> Info(arg 4)",
+  "Parsek.InGameTests.GhostCoOrbitalRig::SpawnInAir -> Info(arg 7)",
   "Parsek.InGameTests.GhostCoOrbitalRig::SpawnInAir -> Info(arg 7)",
   "Parsek.LedgerOrchestrator::FinalizeScopedPendingScienceCommit -> Verbose(arg 0)",
   "Parsek.Logistics.RouteLoadReconcile::InstallFloorAfterLoad -> Info(arg 2)",
@@ -33,6 +35,7 @@
   "Parsek.PartStateSeeder::EmitEngineSeedEvents -> Info+Verbose(arg 3)",
   "Parsek.PartStateSeeder::EmitEngineShutdownSentinel -> Verbose(arg 5)",
   "Parsek.PartStateSeeder::EmitHeatSeedEvents -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::EmitPromotionStateEvents -> Info+Verbose(arg 7)",
   "Parsek.PartStateSeeder::EmitRcsSeedEvents -> Verbose(arg 3)",
   "Parsek.PartStateSeeder::SeedAnimateGeneric -> Verbose(arg 3)",
   "Parsek.PartStateSeeder::SeedAnimateHeat -> Verbose(arg 2)",
@@ -56,8 +59,8 @@
  "generator": "scripts/arch/logtags.py",
  "nonLiteral": {
   "byKind": {
-   "call": 73,
-   "other": 13
+   "call": 130,
+   "other": 14
   },
   "byMethod": {
    "Parsek.FlightRecorder::LogReFlyOrbitSegmentVelocityNonFinite": 1,
@@ -76,7 +79,9 @@
    "Parsek.PartStatePoller::PollLights": 3,
    "Parsek.PartStatePoller::PollParachutes": 1,
    "Parsek.PartStatePoller::PollRobotArmScanners": 2,
+   "Parsek.PartStatePoller::PollRobotics": 4,
    "Parsek.PartStatePoller::PollWheelDamage": 1,
+   "Parsek.PartStateSeeder::<EmitEvaStateSeedEvents>g__Emit|21_0": 1,
    "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitDeployableFromUlongSet|2": 1,
    "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitFromUintSet|1": 1,
    "Parsek.PartStateSeeder::EmitSeedEvents": 6,
@@ -84,20 +89,56 @@
    "Parsek.TestCommands.PartParityAirContext::AdvanceCase": 4,
    "Parsek.TestCommands.PartParityAirContext::ArmChute": 2,
    "Parsek.TestCommands.PartParityAirContext::DecideAdmission": 1,
+   "Parsek.TestCommands.PartParityAirContext::HoldReadyCases": 1,
    "Parsek.TestCommands.PartParityAirContext::MoveNext": 2,
    "Parsek.TestCommands.PartParityAirContext::SpawnCase": 2,
+   "Parsek.TestCommands.PartParityAirContext::SpawnHeld": 2,
    "Parsek.TestCommands.PartParityAirContext::StepFull": 1,
+   "Parsek.TestCommands.PartParityFxDriver::<CaptureStartReload>b__0": 1,
+   "Parsek.TestCommands.PartParityFxDriver::ArmMainThrottle": 1,
+   "Parsek.TestCommands.PartParityFxDriver::AuthorVesselNode": 1,
+   "Parsek.TestCommands.PartParityFxDriver::BreakGhost": 1,
+   "Parsek.TestCommands.PartParityFxDriver::BuildEvidence": 1,
+   "Parsek.TestCommands.PartParityFxDriver::ChooseSubject": 1,
+   "Parsek.TestCommands.PartParityFxDriver::DescribeLayers": 1,
+   "Parsek.TestCommands.PartParityFxDriver::EnsureCheat": 1,
+   "Parsek.TestCommands.PartParityFxDriver::ExcludeUnfiredNozzles": 1,
+   "Parsek.TestCommands.PartParityFxDriver::Fault": 1,
+   "Parsek.TestCommands.PartParityFxDriver::FinalFraming": 1,
+   "Parsek.TestCommands.PartParityFxDriver::LogGlow": 1,
+   "Parsek.TestCommands.PartParityFxDriver::LogHeat": 1,
+   "Parsek.TestCommands.PartParityFxDriver::Measure": 1,
+   "Parsek.TestCommands.PartParityFxDriver::MeasureGeometry": 1,
+   "Parsek.TestCommands.PartParityFxDriver::MoveNext": 9,
+   "Parsek.TestCommands.PartParityFxDriver::NozzleOf": 1,
+   "Parsek.TestCommands.PartParityFxDriver::OnRcsReached": 1,
+   "Parsek.TestCommands.PartParityFxDriver::PlateCapture": 1,
+   "Parsek.TestCommands.PartParityFxDriver::PollFx": 2,
+   "Parsek.TestCommands.PartParityFxDriver::PressHeat": 1,
+   "Parsek.TestCommands.PartParityFxDriver::PressPlume": 1,
+   "Parsek.TestCommands.PartParityFxDriver::PressRcs": 1,
+   "Parsek.TestCommands.PartParityFxDriver::PrimeGhosts": 1,
+   "Parsek.TestCommands.PartParityFxDriver::Release": 5,
+   "Parsek.TestCommands.PartParityFxDriver::RestoreRamps": 1,
+   "Parsek.TestCommands.PartParityFxDriver::SetUpFx": 1,
+   "Parsek.TestCommands.PartParityFxDriver::ShrinkFx": 1,
+   "Parsek.TestCommands.PartParityFxDriver::SpawnCase": 1,
+   "Parsek.TestCommands.PartParityFxDriver::SpawnRotation": 1,
+   "Parsek.TestCommands.PartParityFxDriver::TickWarmUp": 1,
+   "Parsek.TestCommands.PartParityFxDriver::TryStep": 2,
+   "Parsek.TestCommands.PartParityFxDriver::WritePictures": 2,
    "Parsek.TestCommands.PartParityStateDriver::AuthorFgvVesselNode": 2,
    "Parsek.TestCommands.PartParityStateDriver::AuthorStowedPose": 1,
    "Parsek.TestCommands.PartParityStateDriver::AuthorVesselNode": 1,
    "Parsek.TestCommands.PartParityStateDriver::BuildStartGhost": 1,
+   "Parsek.TestCommands.PartParityStateDriver::CaptureStartPair": 1,
    "Parsek.TestCommands.PartParityStateDriver::CaptureStowedInputs": 3,
    "Parsek.TestCommands.PartParityStateDriver::CaptureView": 1,
    "Parsek.TestCommands.PartParityStateDriver::DestroyStateParts": 4,
    "Parsek.TestCommands.PartParityStateDriver::FillSidecar": 1,
    "Parsek.TestCommands.PartParityStateDriver::KillSeparatedVessel": 2,
    "Parsek.TestCommands.PartParityStateDriver::MoveNext": 1,
-   "Parsek.TestCommands.PartParityStateDriver::Prepare": 2,
+   "Parsek.TestCommands.PartParityStateDriver::Prepare": 3,
    "Parsek.TestCommands.PartParityStateDriver::Press": 3,
    "Parsek.TestCommands.PartParityStateDriver::PressSeparate": 1,
    "Parsek.TestCommands.PartParityStateDriver::ReadSunTracker": 1,
@@ -134,17 +175,17 @@
   "Anchor": {
    "levels": {
     "INFO": 11,
-    "VERBOSE": 19,
+    "VERBOSE": 20,
     "WARN": 14
    },
    "modules": {
     "Controllers": 10,
-    "Ghost": 2,
+    "Ghost": 3,
     "Recording": 30,
     "Rendering": 1,
     "Rewind": 1
    },
-   "sites": 44
+   "sites": 45
   },
   "AutoHireReservation": {
    "levels": {
@@ -185,14 +226,14 @@
    "helperSites": 6,
    "levels": {
     "INFO": 77,
-    "VERBOSE": 102,
+    "VERBOSE": 104,
     "WARN": 22,
     "mixed": 4
    },
    "modules": {
-    "Recording": 205
+    "Recording": 207
    },
-   "sites": 205
+   "sites": 207
   },
   "Boundary": {
    "levels": {
@@ -205,18 +246,34 @@
    },
    "sites": 9
   },
-  "CameraFollow": {
+  "CameraDrone": {
    "levels": {
-    "INFO": 50,
-    "VERBOSE": 33,
-    "WARN": 17
+    "ERROR": 6,
+    "INFO": 15,
+    "VERBOSE": 3,
+    "WARN": 3
    },
    "modules": {
-    "Controllers": 92,
-    "Ghost": 7,
+    "Controllers": 19,
+    "Core": 4,
+    "Ghost": 2,
+    "Patches": 2
+   },
+   "sites": 27
+  },
+  "CameraFollow": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 61,
+    "VERBOSE": 37,
+    "WARN": 18
+   },
+   "modules": {
+    "Controllers": 107,
+    "Ghost": 9,
     "Patches": 1
    },
-   "sites": 100
+   "sites": 117
   },
   "CareerSettings": {
    "levels": {
@@ -758,24 +815,24 @@
   },
   "Engine": {
    "levels": {
-    "INFO": 9,
-    "VERBOSE": 75,
+    "INFO": 10,
+    "VERBOSE": 79,
     "WARN": 4
    },
    "modules": {
     "Controllers": 1,
-    "Ghost": 87
+    "Ghost": 92
    },
-   "sites": 88
+   "sites": 93
   },
   "EngineFx": {
    "levels": {
-    "VERBOSE": 12
+    "VERBOSE": 11
    },
    "modules": {
-    "Ghost": 12
+    "Ghost": 11
    },
-   "sites": 12
+   "sites": 11
   },
   "Environment": {
    "levels": {
@@ -874,6 +931,31 @@
    },
    "sites": 29
   },
+  "FarWatch": {
+   "levels": {
+    "ERROR": 7,
+    "INFO": 15,
+    "VERBOSE": 4,
+    "WARN": 6
+   },
+   "modules": {
+    "Controllers": 31,
+    "Patches": 1
+   },
+   "sites": 32
+  },
+  "FarWatchFence": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 1,
+    "WARN": 8
+   },
+   "modules": {
+    "GameActions": 1,
+    "Patches": 12
+   },
+   "sites": 13
+  },
   "FastForward": {
    "levels": {
     "INFO": 3,
@@ -908,31 +990,31 @@
   },
   "FlagReplay": {
    "levels": {
-    "INFO": 3,
-    "VERBOSE": 10,
-    "WARN": 5
+    "INFO": 4,
+    "VERBOSE": 11,
+    "WARN": 6
    },
    "modules": {
     "Controllers": 3,
-    "Ghost": 14,
+    "Ghost": 17,
     "Patches": 1
    },
-   "sites": 18
+   "sites": 21
   },
   "Flight": {
    "helperSites": 1,
    "levels": {
     "ERROR": 3,
-    "INFO": 232,
+    "INFO": 235,
     "VERBOSE": 200,
-    "WARN": 124
+    "WARN": 125
    },
    "modules": {
-    "Controllers": 534,
+    "Controllers": 538,
     "Ghost": 9,
     "Logistics": 16
    },
-   "sites": 559
+   "sites": 563
   },
   "FlightGhostPosition": {
    "levels": {
@@ -1119,12 +1201,12 @@
   },
   "GhostFx": {
    "levels": {
-    "VERBOSE": 1
+    "VERBOSE": 5
    },
    "modules": {
-    "Ghost": 1
+    "Ghost": 5
    },
-   "sites": 1
+   "sites": 5
   },
   "GhostFxIntegrity": {
    "levels": {
@@ -1140,18 +1222,18 @@
   "GhostMap": {
    "helperSites": 1,
    "levels": {
-    "ERROR": 9,
-    "INFO": 59,
-    "VERBOSE": 151,
-    "WARN": 39
+    "ERROR": 10,
+    "INFO": 62,
+    "VERBOSE": 155,
+    "WARN": 41
    },
    "modules": {
     "Controllers": 11,
     "Display": 42,
-    "Ghost": 153,
+    "Ghost": 163,
     "Patches": 52
    },
-   "sites": 258
+   "sites": 268
   },
   "GhostOrbitArc": {
    "levels": {
@@ -1164,12 +1246,12 @@
   },
   "GhostOrbitIcon": {
    "levels": {
-    "VERBOSE": 6
+    "VERBOSE": 7
    },
    "modules": {
-    "Patches": 6
+    "Patches": 7
    },
-   "sites": 6
+   "sites": 7
   },
   "GhostOrbitLine": {
    "levels": {
@@ -1204,13 +1286,15 @@
    "levels": {
     "ERROR": 1,
     "INFO": 5,
-    "VERBOSE": 142,
-    "WARN": 13
+    "VERBOSE": 168,
+    "WARN": 14
    },
    "modules": {
-    "Ghost": 161
+    "Ghost": 186,
+    "Patches": 1,
+    "Recording": 1
    },
-   "sites": 161
+   "sites": 188
   },
   "Ghoster": {
    "levels": {
@@ -1359,14 +1443,14 @@
   },
   "KSCGhost": {
    "levels": {
-    "INFO": 3,
-    "VERBOSE": 53,
+    "INFO": 4,
+    "VERBOSE": 56,
     "WARN": 2
    },
    "modules": {
-    "Controllers": 58
+    "Controllers": 62
    },
-   "sites": 58
+   "sites": 62
   },
   "KSCSpawn": {
    "helperSites": 1,
@@ -1581,6 +1665,15 @@
    },
    "sites": 3
   },
+  "LiveGhostReentryFx": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "InGameTests": 1
+   },
+   "sites": 1
+  },
   "LiveOnlyIncome": {
    "levels": {
     "INFO": 2,
@@ -1631,15 +1724,15 @@
   "Loop": {
    "levels": {
     "INFO": 4,
-    "VERBOSE": 12,
+    "VERBOSE": 13,
     "WARN": 3
    },
    "modules": {
-    "Controllers": 6,
+    "Controllers": 7,
     "Ghost": 12,
     "Recording": 1
    },
-   "sites": 19
+   "sites": 20
   },
   "LoopAnchor": {
    "levels": {
@@ -1853,16 +1946,16 @@
   "PartParity": {
    "helperSites": 11,
    "levels": {
-    "INFO": 26,
+    "INFO": 30,
     "VERBOSE": 10,
-    "WARN": 21,
+    "WARN": 22,
     "mixed": 8
    },
    "modules": {
-    "InGameTests": 2,
-    "TestCommands": 63
+    "InGameTests": 3,
+    "TestCommands": 67
    },
-   "sites": 65
+   "sites": 70
   },
   "PartPuffFx": {
    "levels": {
@@ -1920,12 +2013,12 @@
   "PhysicsPatch": {
    "levels": {
     "INFO": 4,
-    "VERBOSE": 2
+    "VERBOSE": 4
    },
    "modules": {
-    "Patches": 6
+    "Patches": 8
    },
-   "sites": 6
+   "sites": 8
   },
   "Pipeline-Anchor": {
    "levels": {
@@ -2055,13 +2148,13 @@
   "Playback": {
    "levels": {
     "INFO": 2,
-    "VERBOSE": 18,
+    "VERBOSE": 19,
     "WARN": 3
    },
    "modules": {
-    "Controllers": 23
+    "Controllers": 24
    },
-   "sites": 23
+   "sites": 24
   },
   "PlaybackScope": {
    "levels": {
@@ -2372,30 +2465,30 @@
    "helperSites": 7,
    "levels": {
     "ERROR": 3,
-    "INFO": 59,
+    "INFO": 62,
     "VERBOSE": 147,
     "WARN": 28,
-    "mixed": 4
+    "mixed": 5
    },
    "modules": {
     "Controllers": 2,
     "Logistics": 17,
-    "Patches": 3,
-    "Recording": 219
+    "Patches": 4,
+    "Recording": 222
    },
-   "sites": 241
+   "sites": 245
   },
   "Recording": {
    "levels": {
     "INFO": 2,
     "VERBOSE": 6,
-    "WARN": 3
+    "WARN": 4
    },
    "modules": {
-    "Recording": 10,
+    "Recording": 11,
     "Rewind": 1
    },
-   "sites": 11
+   "sites": 12
   },
   "RecordingInvariants": {
    "levels": {
@@ -2726,14 +2819,14 @@
   "Scenario": {
    "levels": {
     "ERROR": 4,
-    "INFO": 101,
+    "INFO": 103,
     "VERBOSE": 61,
     "WARN": 56
    },
    "modules": {
-    "Controllers": 222
+    "Controllers": 224
    },
-   "sites": 222
+   "sites": 224
   },
   "SceneExit": {
    "levels": {
@@ -2788,6 +2881,15 @@
     "Ghost": 3
    },
    "sites": 6
+  },
+  "SeatGhostKerbal": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "InGameTests": 2
+   },
+   "sites": 2
   },
   "Settings": {
    "levels": {
@@ -2868,16 +2970,16 @@
    "levels": {
     "ERROR": 14,
     "INFO": 53,
-    "VERBOSE": 79,
+    "VERBOSE": 80,
     "WARN": 47
    },
    "modules": {
     "Controllers": 148,
     "Core": 18,
     "Ghost": 3,
-    "Recording": 24
+    "Recording": 25
    },
-   "sites": 193
+   "sites": 194
   },
   "SplitParentLinks": {
    "levels": {
@@ -3121,15 +3223,15 @@
   },
   "TestCommands": {
    "levels": {
-    "ERROR": 151,
-    "INFO": 369,
-    "VERBOSE": 41,
-    "WARN": 365
+    "ERROR": 158,
+    "INFO": 382,
+    "VERBOSE": 43,
+    "WARN": 372
    },
    "modules": {
-    "TestCommands": 926
+    "TestCommands": 955
    },
-   "sites": 926
+   "sites": 955
   },
   "TestHelper": {
    "helperSites": 1,
@@ -3148,16 +3250,16 @@
    "helperSites": 2,
    "levels": {
     "ERROR": 12,
-    "INFO": 421,
+    "INFO": 424,
     "VERBOSE": 235,
-    "WARN": 186,
+    "WARN": 188,
     "mixed": 2
    },
    "modules": {
-    "InGameTests": 855,
+    "InGameTests": 860,
     "TestCommands": 1
    },
-   "sites": 856
+   "sites": 861
   },
   "TestSub": {
    "levels": {
@@ -3390,9 +3492,9 @@
   }
  },
  "totals": {
-  "forwarders": 52,
-  "nonLiteralSites": 86,
-  "sites": 9788,
-  "tags": 296
+  "forwarders": 55,
+  "nonLiteralSites": 144,
+  "sites": 9991,
+  "tags": 301
  }
 }

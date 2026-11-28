@@ -1294,22 +1294,53 @@ namespace Parsek
         /// </summary>
         internal static int StripFromSave(FlightState flightState)
         {
-            if (flightState == null || ghostMapVesselPids.Count == 0)
+            bool droneIds = CameraDroneIdentity.Exists;
+            if (flightState == null || (ghostMapVesselPids.Count == 0 && !droneIds))
                 return 0;
 
+            uint dronePid = droneIds ? CameraDroneIdentity.DronePid : 0u;
+            Guid droneGuid = droneIds ? CameraDroneIdentity.DroneGuid : Guid.Empty;
+            Guid shipGuid = droneIds ? CameraDroneIdentity.ShipGuid : Guid.Empty;
+            int oldIdx = flightState.activeVesselIdx;
             int newActiveIdx = ComputeActiveVesselIdxForStrip(
-                flightState.protoVessels, flightState.activeVesselIdx, IsFlightSceneForSaveIndexLog());
+                flightState.protoVessels, oldIdx, IsFlightSceneForSaveIndexLog(),
+                dronePid, droneGuid, shipGuid, out ActiveVesselIdxOutcome outcome);
 
-            int stripped = flightState.protoVessels.RemoveAll(
+            if (droneIds && outcome == ActiveVesselIdxOutcome.ShipMissing)
+            {
+                if (!CameraDroneIdentity.SaveMayProceedWithoutShip)
+                {
+                    // A live drone and no ship in the save while the ship is not known lost:
+                    // never write index 0 (it would focus some other vessel on load). The
+                    // caller's fail-closed handler aborts the save.
+                    throw new InvalidOperationException(
+                        "far-watch strip: the player ship's ProtoVessel is missing while the camera drone exists");
+                }
+                // The ship is lost (7.6, V2: stock's flight-ended screen saves on both exits) or
+                // the ids are only the scene-exit leftovers: strip the drone, no ship repair.
+                newActiveIdx = ComputeActiveVesselIdxForStripWithoutShip(
+                    flightState.protoVessels, oldIdx, dronePid, droneGuid, CameraDroneIdentity.ShipLost);
+            }
+
+            int stripped = ghostMapVesselPids.Count == 0 ? 0 : flightState.protoVessels.RemoveAll(
                 pv => ghostMapVesselPids.Contains(pv.persistentId));
+            int droneStripped = !droneIds ? 0 : flightState.protoVessels.RemoveAll(
+                pv => pv != null && IsDroneProtoVessel(pv.persistentId, pv.vesselID, dronePid, droneGuid));
             flightState.activeVesselIdx = newActiveIdx;
 
             if (stripped > 0)
                 ParsekLog.Info(Tag,
                     string.Format(ic,
                         "Stripped {0} ghost ProtoVessel(s) from save", stripped));
+            if (droneIds)
+                ParsekLog.Info("CameraDrone",
+                    string.Format(ic,
+                        "activeVesselIdx {0} -> {1} ghostsStripped={2} droneStripped={3} targetByGuid={4} stripPending={5} shipLost={6}",
+                        oldIdx, newActiveIdx, stripped, droneStripped > 0,
+                        outcome == ActiveVesselIdxOutcome.ShipByGuid, CameraDroneIdentity.StripPending,
+                        CameraDroneIdentity.ShipLost));
 
-            return stripped;
+            return stripped + droneStripped;
         }
 
         // ------------------------------------------------------------------

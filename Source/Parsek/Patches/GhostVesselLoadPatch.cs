@@ -200,7 +200,7 @@ namespace Parsek.Patches
         static bool Prefix(OrbitRenderer __instance, ref bool __result)
         {
             if (__instance.vessel != null
-                && GhostMapPresence.IsGhostMapVessel(__instance.vessel.persistentId))
+                && GhostMapPresence.IsGhostOrDroneVessel(__instance.vessel.persistentId))
             {
                 __result = false;
                 return false; // skip original — ghost orbit line not clickable
@@ -424,7 +424,22 @@ namespace Parsek.Patches
                 LogBlockedOffRails(__instance.persistentId, __instance.vesselName);
                 return false; // skip original — keep ghost on rails
             }
+            // Belt for the far-watch drone (design-far-watch.md 6.4): one missed hold renewal
+            // must not drop the active drone into physics at orbital speed. Keyed on a LIVE
+            // drone, so a dead, still-active drone is not refused every frame.
+            if (ShouldRefuseDroneOffRails(CameraDrone.Is(__instance), __instance.state == Vessel.State.DEAD))
+            {
+                ParsekLog.InfoRateLimited("CameraDrone", "drone-offrails-belt",
+                    $"Blocked GoOffRails for the far-watch camera drone pid={__instance.persistentId} (hold belt)", 5.0);
+                return false;
+            }
             return true;
+        }
+
+        /// <summary>The drone GoOffRails belt: refuse for a live drone only.</summary>
+        internal static bool ShouldRefuseDroneOffRails(bool isDrone, bool isDead)
+        {
+            return isDrone && !isDead;
         }
 
         // Extracted so the spam-coalescing contract is testable without a live
@@ -455,7 +470,15 @@ namespace Parsek.Patches
     {
         static void Postfix(Vessel __instance)
         {
-            if (__instance == null || !ShouldMakeInert(__instance.persistentId))
+            if (__instance == null)
+                return;
+            if (CameraDrone.Is(__instance))
+            {
+                // The drone's inert twin: colliders AND renderers off, parts hardened (6.2).
+                CameraDrone.MakeInert(__instance, "Vessel.Load");
+                return;
+            }
+            if (!ShouldMakeInert(__instance.persistentId))
                 return;
             GhostMapPresence.MakeLoadedGhostVesselPhysicsInert(__instance, "Vessel.Load");
         }
@@ -479,7 +502,7 @@ namespace Parsek.Patches
         static bool Prefix(CommNetVessel __instance)
         {
             Vessel v = __instance.Vessel;
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
             {
                 // Remove self from vessel modules and destroy, same as KSP does
                 // for Flag/Debris/Unknown vessels in the original OnStart
@@ -621,7 +644,7 @@ namespace Parsek.Patches
         static void Postfix(ref OrbitDriver __result)
         {
             if (__result != null && __result.vessel != null
-                && GhostMapPresence.IsGhostMapVessel(__result.vessel.persistentId))
+                && GhostMapPresence.IsGhostOrDroneVessel(__result.vessel.persistentId))
             {
                 ParsekLog.Verbose("GhostMap",
                     $"Suppressed OrbitTargeter.TargetCastNodes for ghost '{__result.vessel.vesselName}'");

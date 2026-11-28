@@ -1269,7 +1269,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Menu (QTM-1).
         # 65 / 4 after EvaMove, an ADDITION by one: the active EVA kerbal driven by jetpack
         # or on foot with the player's own movement input (EVA-17).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 65)
+        # 66 / 4 after FarWatch, an ADDITION by one: the far watch's camera drone (FW-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 66)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -11235,6 +11236,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RVC-1-two-rover-head-on-crash.toml": "tier=operator by the calibration discipline (its impact speed and how far the depot is pushed are stock physics, read on its flights, not gated), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a (2026-11-16): V's mining rover docks and undocks the ore depot rover so both are members of one tree, then drives head-on into it (a timed full-throttle DriveVessel), committed at the Space Center, Rewound-to-Launch and replayed from a neighbour; AUTHORED 2026-11-16, flown three times 2026-11-17 (_1411 red on a spec assumption, _1531 / _1534_a2 driver INVALID drivevessel-did-not-crash): the impact reached and pushed the depot every time and broke no part, so it is re-shaped with one radiator explode per rover; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1740, PASS attempt 1, 358 s, fourth flight); owed: the ordinary promotion call",
         "LX-1-loop-armed-refly-discard-merge.toml": "tier=operator by the calibration discipline (its clock and recordings window are derived from IR-3's measured chain, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on tree A of `rover-route-recorded` armed and playing while IR-3's Flea flight is Re-Flown, discarded, re-entered and Re-Flown again and merged, every scene publishing the unit live with the arm-time phase; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1412, PASS attempt 1, 145 s, first flight); owed: the ordinary promotion call",
         "LX-2-career-loop-watch-scene-change-reload.toml": "tier=operator by the calibration discipline (four loads and three watch entries never flown in this order, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on `rover-route-recorded-career` watched through the Space Center, the Tracking Station, a return to flight and an F5 / F9, each scene change ending the watch and each scene rebuilding the unit with the arm-time phase, the career pools unchanged; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1414, PASS attempt 1, 78 s, first flight); owed: the ordinary promotion call",
+        "FW-1-far-watch-drone-swap.toml": "tier=operator by the calibration discipline (never flown; the hold-mode drone swap, the residual save and its load-back are unmeasured), NOT debt; design-far-watch.md 17.4, authored 2026-11-27 with the step 2 FarWatch seam verb on `duna-ike-recorded-career`; owed: the first reading run, then the ordinary promotion call",
         "FXR-1-ghost-engine-fx-across-refly-and-retry.toml": "tier=operator by the calibration discipline (its UT 128 warp target, the re-primed ghost's plume census and the three GhostFxIntegrity batches are unmeasured), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 7 (audit B8, 2026-11-16): seam-only on `refly-split-crewed-merged`, re-flies the open Probe slot with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point and merges, running GhostFxIntegrity after each and pinning the Poodle's ignition, FX fingerprint and plume; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1531, PASS attempt 1, 95 s, second flight; the first, 2026-11-17_1415, red on two spec errors); owed: the ordinary promotion call",
         "RSQ-1-rescue-rebuilt-at-space-center.toml": "tier=operator by the calibration discipline, NOT debt: the rescue rebuild lane on `cs-career-mun4` (stock-tree, not in the nightly instance set), RW-18's prefix: a rescue (RecoverAsset e8ba5ea6) accepted at the Space Center after a committed pad Flea, Rewind-to-Launch, the Space Center warp that reaches the accept regenerates the stranded pod once and a Cold reload adds no second one (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS); AUTHORED 2026-11-20, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1140`, runner run b3-flights-4); owed: the ordinary promotion call",
         "RSQ-2-rescue-rebuilt-in-flight-deferred.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on `cs-career-mun4` (stock-tree), the accept reached by a TimeJump in FLIGHT, the stranded pod deferred and listed, the list kept across a Cold load and drained at the next Space Center visit, a second visit adding nothing (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 1a); AUTHORED 2026-11-20, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1142`, runner run b3-flights-4); owed: the ordinary promotion call",
@@ -19204,6 +19206,67 @@ class EvaMoveSourceSyncTests(unittest.TestCase):
         errs = v(2, {"mode": "jetpack", "dir": "up", "seconds": 1, "label": "x"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("silently ignored", errs[0])
+
+
+class FarWatchSourceSyncTests(unittest.TestCase):
+    """`FarWatch`. Reads OUTSIDE harness/: the verb, arg keys and the op / mode value sets of
+    the comment-stripped TestCommands/TestCommandFarWatch.cs, and its dispatcher rows, so the
+    pre-launch validator cannot drift from the seam."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# FarWatch tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_keys_and_values_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandFarWatch.cs")
+        arr = StockScreenSourceSyncTests._cs_string_array
+        self.assertIn('internal const string Verb = "%s";' % hlib.FARWATCH_VERB, text)
+        self.assertEqual(list(hlib.FARWATCH_ARG_KEYS), arr(text, "ArgKeys"))
+        self.assertEqual(list(hlib.FARWATCH_OPS), arr(text, "OpValues"))
+        self.assertEqual(list(hlib.FARWATCH_MODES), arr(text, "ModeValues"))
+        self.assertIn('internal const string OpKey = "%s";' % hlib.FARWATCH_OP_KEY, text)
+        self.assertIn('internal const string IndexKey = "%s";' % hlib.FARWATCH_INDEX_KEY, text)
+        self.assertIn('internal const string TreeKey = "%s";' % hlib.FARWATCH_TREE_KEY, text)
+        self.assertIn('internal const string ModeKey = "%s";' % hlib.FARWATCH_MODE_KEY, text)
+        self.assertIn("internal const double BudgetSeconds = 120.0;", text)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.FARWATCH_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(120.0, hlib.dispatch_deferral_budget(verb))
+        dispatcher = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn('["FarWatch"] = VerbSceneRequirement.RequiresFlight,', dispatcher)
+        self.assertIn("TestCommandFarWatch.IsAllowedDuringFarWatch(", dispatcher)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_far_watch_step
+        self.assertEqual([], v(0, {"op": "start", "tree": "abc", "mode": "hold"}))
+        self.assertEqual([], v(0, {"op": "start", "index": 3}))
+        self.assertEqual([], v(0, {"op": "start", "index": "${pick.index}", "mode": "follow"}))
+        self.assertEqual([], v(0, {"op": "stop"}))
+        self.assertEqual([], v(0, {"op": "status"}))
+        bad = [
+            ({}, "op-missing"),
+            ({"op": "Start", "tree": "a"}, "op-invalid"),
+            ({"op": "start", "tree": "a", "mode": "chase"}, "mode-invalid"),
+            ({"op": "start"}, "target-missing"),
+            ({"op": "start", "tree": "a", "index": 1}, "target-ambiguous"),
+            ({"op": "start", "index": -1}, "index-invalid"),
+            ({"op": "start", "index": True}, "index-invalid"),
+            ({"op": "stop", "focus": "x"}, "silently ignored"),
+        ]
+        for args, reason in bad:
+            errs = v(2, args)
+            self.assertEqual(1, len(errs), (args, errs))
+            self.assertIn(reason, errs[0])
 
 
 class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):

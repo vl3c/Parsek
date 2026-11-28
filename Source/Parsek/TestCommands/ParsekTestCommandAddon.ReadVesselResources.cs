@@ -65,7 +65,7 @@ namespace Parsek.TestCommands
                         RejectReadVesselResources(TestCommandReadVesselResources.VesselNotFoundReason, $"pid={pid}");
                         return;
                     }
-                    if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
                     {
                         RejectReadVesselResources(TestCommandReadVesselResources.TargetIsGhostReason, $"pid={pid}");
                         return;
@@ -86,7 +86,7 @@ namespace Parsek.TestCommands
                     }
                     uint spawnedPid = rec.SpawnedVesselPersistentId;
                     Vessel v = spawnedPid != 0 ? FindLiveVesselByPid(spawnedPid) : null;
-                    if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
                         v = null;
                     var reading = new VesselResourceReading
                     {
@@ -121,7 +121,7 @@ namespace Parsek.TestCommands
             {
                 foreach (Vessel v in all)
                 {
-                    if (v == null || named.Contains(v) || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    if (v == null || named.Contains(v) || GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
                         continue;
                     var scratch = new VesselResourceReading();
                     ReadVesselTanks(v, scratch);

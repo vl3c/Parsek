@@ -719,7 +719,7 @@ class WorkflowTests(unittest.TestCase):
                 "steps.metrics_row.outcome == 'success'\n        continue-on-error: true\n",
                 "steps.metrics_row.outcome == 'success'\n"),
             "upload with no row": good.replace(" && steps.metrics_row.outcome == 'success'", ""),
-            "no proof on pull requests": good.replace("-p 'test_[ims]*.py'", "-p 'test_[si]*.py'"),
+            "no proof on pull requests": good.replace("-p 'test_[fims]*.py'", "-p 'test_[si]*.py'"),
             "third-party action": good.replace("uses: actions/download-artifact@", "uses: someone/download@", 1),
         }
         try:

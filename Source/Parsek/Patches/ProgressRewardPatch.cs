@@ -88,6 +88,9 @@ namespace Parsek.Patches
                     return;
                 }
                 if (node == null) return;
+                if (FarWatchAwardScope.ShouldRefuseAward(node, "AwardProgress",
+                        GameStateRecorder.QualifyMilestoneId(node)))
+                    return;
 
                 // #442: branch on whether OnProgressComplete already emitted a pending
                 // event for this node. The two cases are mutually exclusive — never enrich

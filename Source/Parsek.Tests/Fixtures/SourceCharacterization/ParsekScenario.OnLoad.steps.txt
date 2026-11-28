@@ -3,6 +3,7 @@ classified early=Cold refined=Cold
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents
@@ -155,6 +156,7 @@ classified early=PlainRewind refined=PlainRewind
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents
@@ -242,6 +244,7 @@ classified early=ReFlyStart refined=ReFlyStart
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents
@@ -389,6 +392,7 @@ classified early=DiscardReFly refined=DiscardReFly
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents
@@ -541,6 +545,7 @@ classified early=InSession refined=StockRevert
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents
@@ -702,6 +707,7 @@ classified early=InSession refined=QuickloadFlight
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents
@@ -850,6 +856,7 @@ classified early=InSession refined=InSessionOther
 call ParsekScenario.ShouldKeepBackupHold
 call ParsekGameModeGate.CheckInert
 call InFlightRecoveryRequest.Clear
+call CameraDroneIdentity.ClearOnLoad
 call ConverterJumpPolicy.ClearJumpedSpans
 call CommittedMilestoneReach.ClearSubjectScienceMirror
 call ParsekScenario.DropHeldSaveAttemptEvents

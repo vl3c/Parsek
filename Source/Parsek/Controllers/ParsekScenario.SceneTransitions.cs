@@ -145,6 +145,16 @@ namespace Parsek
                     $"vessel-switch flag not armed (frame={frame})");
                 return false;
             }
+            if (CameraDroneIdentity.SwitchTokenHeld)
+            {
+                // A far-watch hand-over is not a player switch at either end
+                // (design-far-watch.md 7.1 step 3): armed, a FLIGHT -> FLIGHT scene change
+                // within the window would read as a Tracking Station switch.
+                ParsekLog.Info("Scenario",
+                    $"Vessel switch '{fromName}' -> '{toName}' is a far-watch hand-over " +
+                    $"(switch token held) - vessel-switch flag not armed (frame={frame})");
+                return false;
+            }
             vesselSwitchPending = true;
             // Time.frameCount is monotonic across scene loads within a single
             // KSP session (Unity only resets it on application restart, not on
@@ -311,6 +321,11 @@ namespace Parsek
 
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
+            if ((from != null && CameraDrone.Is(from)) || (to != null && CameraDrone.Is(to)))
+            {
+                ParsekLog.Info("Scenario", "OnVesselSwitching: far-watch drone hand-over, vessel switch flag not armed");
+                return;
+            }
             TryArmVesselSwitchFlag(from?.vesselName, to?.vesselName, UnityEngine.Time.frameCount);
         }
 

@@ -211,7 +211,7 @@ namespace Parsek
                     continue;
                 if (vessel.persistentId == state.vesselPid)
                     continue;
-                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+                if (GhostMapPresence.IsGhostOrDroneVessel(vessel.persistentId))
                     continue;
                 if (vessel.persistentId == (bgVessel?.persistentId ?? 0u))
                     continue;

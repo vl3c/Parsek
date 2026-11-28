@@ -30,11 +30,15 @@ namespace Parsek
             string savePhase,
             bool phasesCompleted)
         {
-            if (flightState == null || GhostMapPresence.ghostMapVesselPids.Count == 0)
+            if (flightState == null
+                || (GhostMapPresence.ghostMapVesselPids.Count == 0
+                    && !CameraDroneIdentity.Exists && !CameraDroneIdentity.StripPending))
                 return 0;
             try
             {
                 int stripped = GhostMapPresence.StripFromSave(flightState);
+                // The scene-exit leftovers have served their one strip (design-far-watch.md 7.5).
+                CameraDroneIdentity.ClearAfterStrip(context);
                 if (!phasesCompleted)
                 {
                     ParsekLog.Warn("Scenario",

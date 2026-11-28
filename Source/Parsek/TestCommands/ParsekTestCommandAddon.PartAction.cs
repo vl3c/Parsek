@@ -92,7 +92,7 @@ namespace Parsek.TestCommands
             }
 
             Vessel v = hasPid ? FindLiveVesselByPid(pid) : FlightGlobals.ActiveVessel;
-            bool ghost = v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId);
+            bool ghost = v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId);
             reason = TestCommandPartAction.DecideVessel(hasPid, v != null, ghost, v != null && v.loaded);
             if (reason != null)
             {
@@ -771,7 +771,7 @@ namespace Parsek.TestCommands
             List<Vessel> vessels = FlightGlobals.Vessels;
             if (vessels == null) return pids;
             for (int i = 0; i < vessels.Count; i++)
-                if (vessels[i] != null && !GhostMapPresence.IsGhostMapVessel(vessels[i].persistentId))
+                if (vessels[i] != null && !GhostMapPresence.IsGhostOrDroneVessel(vessels[i].persistentId))
                     pids.Add(vessels[i].persistentId);
             return pids;
         }

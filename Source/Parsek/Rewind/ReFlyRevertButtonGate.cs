@@ -206,7 +206,7 @@ namespace Parsek
         {
             try
             {
-                var v = FlightGlobals.ActiveVessel;
+                var v = FarWatchPlayerVessel.Resolve();
                 return v != null && v.situation == Vessel.Situations.PRELAUNCH;
             }
             catch

@@ -165,6 +165,7 @@ namespace Parsek
                     "OnPartDie: part or vessel is null");
                 return;
             }
+            if (GhostMapPresence.IsGhostOrDroneVessel(p.vessel.persistentId)) return;
             if (p.vessel.persistentId != RecordingVesselId) return;
 
             bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;

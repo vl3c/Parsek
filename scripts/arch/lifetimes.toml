@@ -765,3 +765,20 @@ animationRestSampleCache = "process: prefab-derived animation rest-state sample 
 nozzleGlowSampleCache = "process: prefab-derived nozzle glow clip sample cache, cleared with ClearAnimateHeatCache"
 colorChangerWritesOnlyWhileRamping = "process: resolve-once latch of whether KSPCommunityFixes patches ModuleColorChanger.Update"
 cachedExplosionPuffTexture = "process: the generated lumpy puff texture the hand-built explosion's smoke and fire share, built once"
+
+[[type]]
+name = "Parsek.CameraDroneIdentity"
+default = "load-transition"
+reason = "the far-watch camera drone's ids and the player ship it stands in for (design-far-watch.md 6.1); kept across a scene exit only for the next save / load strip (StripPending), cleared by the far-watch teardown, ClearAfterStrip, ParsekScenario.OnLoad's ClearOnLoad and the test runner's between-run reset"
+[type.fields]
+SwitchTokenHeld = "scoped: true only inside Parsek's own ForceSetActiveVessel call (BeginSwitch / EndSwitch in a try / finally)"
+
+[[type]]
+name = "Parsek.FarWatchAwardScope"
+default = "scene"
+reason = "the far-watch award stamp, read only in the frame it was taken, so a stale one is inert; the far-watch teardown and abort and the test runner's between-run reset clear it"
+
+[[type]]
+name = "Parsek.Patches.FarWatchFencePolicy"
+default = "process"
+reason = "how many career fence targets resolved when Harmony applied the patches, once per process"
