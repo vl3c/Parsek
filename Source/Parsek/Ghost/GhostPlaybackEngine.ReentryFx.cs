@@ -265,6 +265,17 @@ namespace Parsek
                 return;
             }
 
+            // Stock's surface rule first (decompiled ModuleSurfaceFX.Update): the pad's own FX
+            // collider raises the pad's effect and no dust, a wheel piston nothing.
+            LaunchDustSurface surface = ProbeLaunchDustSurface(state, altitude, groundRefAltitude,
+                out Vector3 ground, out Vector3 up, out int colliderId);
+            if (!GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(surface))
+            {
+                LogLaunchDustOnChange(recIdx, state, surface, colliderId, 0f, enginePower, altitude, groundRefAltitude);
+                DriveLaunchDustToZero(state);
+                return;
+            }
+
             if (state.launchDustInfo == null)
             {
                 if (!state.launchDustPendingBuild) return;
@@ -289,7 +300,7 @@ namespace Parsek
             ParticleSystem ps = state.launchDustInfo.particles;
             if (ps == null) return;
 
-            PlaceLaunchDustOnGround(recIdx, state, altitude, groundRefAltitude);
+            PlaceLaunchDustOnGround(state, ground, up);
 
             var emission = ps.emission;
             emission.rateOverTimeMultiplier = GhostPlaybackLogic.LaunchDustEmissionMax * intensity;
@@ -299,63 +310,85 @@ namespace Parsek
             if (!ps.isPlaying) ps.Play();
             state.launchDustInfo.lastIntensity = intensity;
 
-            ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-{recIdx}",
-                $"Launch dust ghost #{recIdx} \"{state.vesselName}\" " +
-                $"intensity={intensity.ToString("F3", CultureInfo.InvariantCulture)} " +
-                $"power={enginePower.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"groundRef={groundRefAltitude.ToString("F1", CultureInfo.InvariantCulture)}",
-                5.0);
+            LogLaunchDustOnChange(recIdx, state, surface, colliderId, intensity, enginePower, altitude, groundRefAltitude);
         }
 
         /// <summary>
-        /// Lays the dust emitter flat on the ground under the ghost. The emitter is a Circle shape,
-        /// which emits in its local XY plane, so its local Z is turned onto the surface normal: the
-        /// disc lies on the ground and its particles run outward across it, as stock's ground dust
-        /// does, instead of standing upright around the ghost and rising with it. Re-placed every
-        /// frame because the ghost climbs away from the spot while the dust stays on the ground.
-        /// The ground is the first pad, runway or terrain surface straight below (stock
-        /// <c>ModuleSurfaceFX</c>'s layers), else the latched terrain reference. The normal comes
-        /// from the ghost's body; without one the ghost's own up axis stands in.
+        /// One Verbose line when what the dust does changes (the surface, the collider hit, the
+        /// intensity in tenths), and nothing on the frames between: the message is only built on
+        /// a change, so a steady frame allocates nothing.
+        /// </summary>
+        private static void LogLaunchDustOnChange(
+            int recIdx, GhostPlaybackState state, LaunchDustSurface surface, int colliderId,
+            float intensity, float enginePower, double altitude, double groundRefAltitude)
+        {
+            int signature = GhostPlaybackLogic.ComputeLaunchDustLogSignature(surface, colliderId, intensity);
+            if (signature == state.launchDustLogSignature) return;
+            state.launchDustLogSignature = signature;
+            if (!ParsekLog.IsVerboseEnabled) return;
+            ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-{recIdx}",
+                $"Launch dust ghost #{recIdx} \"{state.vesselName}\" surface={surface} " +
+                $"collider={colliderId.ToString(CultureInfo.InvariantCulture)} " +
+                $"intensity={intensity.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"power={enginePower.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"groundRef={groundRefAltitude.ToString("F1", CultureInfo.InvariantCulture)}" +
+                (GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(surface) ? "" : " (no dust: stock's rule)"),
+                0.5);
+        }
+
+        /// <summary>
+        /// Finds the surface under the ghost the way stock's <c>ModuleSurfaceFX</c> does: a raycast
+        /// on its layers (<c>0x40008000</c>), the hit classified by its collider's tag
+        /// (<see cref="GhostPlaybackLogic.ClassifyLaunchDustHit"/>). The ground point is the hit
+        /// lifted by <see cref="GhostPlaybackLogic.LaunchDustGroundLiftMeters"/>, else the latched
+        /// terrain reference (a terrain surface). The normal comes from the ghost's body; without
+        /// one the ghost's own up axis stands in. No ghost: terrain at the reference.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void PlaceLaunchDustOnGround(
-            int recIdx, GhostPlaybackState state, double altitude, double groundRefAltitude)
+        private static LaunchDustSurface ProbeLaunchDustSurface(
+            GhostPlaybackState state, double altitude, double groundRefAltitude,
+            out Vector3 ground, out Vector3 up, out int colliderId)
         {
-            GameObject dust = state.launchDustInfo?.dustObject;
-            if (dust == null || state.ghost == null) return;
+            ground = Vector3.zero;
+            up = Vector3.up;
+            colliderId = 0;
+            if (state.ghost == null) return LaunchDustSurface.Terrain;
 
             Vector3 ghostPos = state.ghost.transform.position;
-            Vector3 up;
-            bool fromBody = TryResolveLaunchDustSurfaceUp(
-                state.lastInterpolatedBodyName, ghostPos, out up);
-            if (!fromBody) up = state.ghost.transform.up;
+            if (!TryResolveLaunchDustSurfaceUp(state.lastInterpolatedBodyName, ghostPos, out up))
+                up = state.ghost.transform.up;
 
-            // The surface first, as stock does: the pad deck and runways stand above the terrain
-            // altitude the AGL is measured against. The terrain reference is the fallback.
-            Vector3 ground;
-            bool hitSurface = false;
             double agl = altitude - groundRefAltitude;
             float reach = (float)Math.Min(GhostPlaybackLogic.LaunchDustMaxAglMeters,
                 double.IsNaN(agl) || agl < 0.0 ? 0.0 : agl) + 10f;
             if (Physics.Raycast(ghostPos + up, -up, out RaycastHit hit, reach + 1f,
                     GhostPlaybackLogic.LaunchDustSurfaceLayerMask))
             {
+                Collider c = hit.collider;
+                colliderId = c != null ? c.GetInstanceID() : 0;
                 ground = hit.point + up * GhostPlaybackLogic.LaunchDustGroundLiftMeters;
-                hitSurface = true;
+                return GhostPlaybackLogic.ClassifyLaunchDustHit(
+                    c != null && c.CompareTag(GhostPlaybackLogic.LaunchpadFxTag),
+                    c != null && c.CompareTag(GhostPlaybackLogic.WheelPistonColliderTag));
             }
-            else
-            {
-                ground = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(
-                    ghostPos, up, altitude, groundRefAltitude);
-            }
-            dust.transform.SetPositionAndRotation(ground, Quaternion.FromToRotation(Vector3.forward, up));
+            ground = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghostPos, up, altitude, groundRefAltitude);
+            return LaunchDustSurface.Terrain;
+        }
 
-            ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-place-{recIdx}",
-                $"Launch dust ghost #{recIdx} \"{state.vesselName}\" laid flat on the ground " +
-                $"{Vector3.Distance(ghostPos, ground).ToString("F1", CultureInfo.InvariantCulture)} m " +
-                $"below the ghost, up from {(fromBody ? "body" : "ghost-axis")}, ground from " +
-                $"{(hitSurface ? "surface-hit '" + hit.collider.name + "'" : "terrain-ref")}", 5.0);
+        /// <summary>
+        /// Lays the dust emitter flat on the ground under the ghost. The emitter is a Circle shape,
+        /// which emits in its local XY plane, so its local Z is turned onto the surface normal: the
+        /// disc lies on the ground and its particles run outward across it, as stock's ground dust
+        /// does. Re-placed every frame because the ghost climbs away from the spot while the dust
+        /// stays on the ground.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PlaceLaunchDustOnGround(GhostPlaybackState state, Vector3 ground, Vector3 up)
+        {
+            GameObject dust = state.launchDustInfo?.dustObject;
+            if (dust == null || state.ghost == null) return;
+            dust.transform.SetPositionAndRotation(ground, Quaternion.FromToRotation(Vector3.forward, up));
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

@@ -1242,6 +1242,44 @@ namespace Parsek
         /// </summary>
         internal const int LaunchDustSurfaceLayerMask = 0x40008000;
 
+        /// <summary>The collider tag on which stock draws the pad's own effect and no dust.</summary>
+        internal const string LaunchpadFxTag = "LaunchpadFX";
+        /// <summary>The collider tag on which stock draws nothing (a wheel's own piston).</summary>
+        internal const string WheelPistonColliderTag = "Wheel_Piston_Collider";
+
+        /// <summary>
+        /// Stock's classification of a surface raycast hit (decompiled <c>ModuleSurfaceFX.Update</c>,
+        /// KSP 1.12.5): a collider tagged <c>LaunchpadFX</c> is the launch pad (the pad's own effect,
+        /// no dust), one tagged <c>Wheel_Piston_Collider</c> is nothing, anything else is terrain.
+        /// </summary>
+        internal static LaunchDustSurface ClassifyLaunchDustHit(bool launchpadTag, bool wheelPistonTag)
+        {
+            if (launchpadTag) return LaunchDustSurface.Launchpad;
+            if (wheelPistonTag) return LaunchDustSurface.None;
+            return LaunchDustSurface.Terrain;
+        }
+
+        /// <summary>Whether a surface raises dust (or spray): terrain and water do, the pad and nothing do not.</summary>
+        internal static bool LaunchDustSurfaceRaisesDust(LaunchDustSurface surface)
+            => surface == LaunchDustSurface.Terrain || surface == LaunchDustSurface.Water;
+
+        /// <summary>
+        /// What the dust log line keys on: the surface, the collider hit and the intensity in tenths.
+        /// The line is written only when this changes, so a steady frame builds no message.
+        /// </summary>
+        internal static int ComputeLaunchDustLogSignature(LaunchDustSurface surface, int colliderId, float intensity)
+        {
+            int tenths = float.IsNaN(intensity) ? -1
+                : (int)Math.Floor(Math.Max(0f, Math.Min(1f, intensity)) * 10f);
+            unchecked
+            {
+                int h = (int)surface + 1;
+                h = h * 397 ^ colliderId;
+                h = h * 31 + tenths;
+                return h;
+            }
+        }
+
         /// <summary>
         /// Sum of every engine module's commanded power on a ghost. Used as the dust driver's
         /// cheapest-first gate: no lit engine, no dust, and nothing below this is evaluated.

@@ -119,6 +119,9 @@ namespace Parsek
         internal LaunchDustInfo launchDustInfo;
         internal bool launchDustPendingBuild;
         internal double launchDustGroundRefAltitude = double.NaN;
+        // The last launch dust log signature (GhostPlaybackLogic.ComputeLaunchDustLogSignature):
+        // the dust line is written only when it changes.
+        internal int launchDustLogSignature = int.MinValue;
         // S4 EVA: the three recorded flags plus the lazily-built jetpack puff. The flags live on
         // the state rather than being re-derived from the event stream each frame so the plume gate
         // is a pure read of three bools (GhostPlaybackLogic.ShouldEmitEvaJetpackPlume) and the
@@ -263,6 +266,7 @@ namespace Parsek
             launchDustInfo = null;
             launchDustPendingBuild = false;
             launchDustGroundRefAltitude = double.NaN;
+            launchDustLogSignature = int.MinValue;
             // S4: same contract as launchDustInfo - DestroyEvaJetpackPlume has already released the
             // Material and the generated Texture2D by the time this runs.
             evaJetpackPlumeInfo = null;

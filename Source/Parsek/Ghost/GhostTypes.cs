@@ -427,6 +427,18 @@ namespace Parsek
     }
 
     /// <summary>
+    /// What stock's <c>ModuleSurfaceFX</c> raycast reports, in its own <c>SurfaceType</c> order
+    /// (decompiled KSP 1.12.5): nothing, terrain, water, the launch pad.
+    /// </summary>
+    internal enum LaunchDustSurface
+    {
+        None = 0,
+        Terrain = 1,
+        Water = 2,
+        Launchpad = 3,
+    }
+
+    /// <summary>
     /// S3 launch dust: ONE Parsek-owned particle system per ghost (the reentry <c>fireParticles</c>
     /// template — Parsek authored it, so its emission/size multipliers are driven directly).
     /// </summary>

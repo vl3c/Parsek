@@ -611,6 +611,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DustSurface_StockTagsDecideThePadAndTheWheelPiston()
+        {
+            // Decompiled ModuleSurfaceFX.Update: LaunchpadFX wins over everything, a wheel piston
+            // is nothing, any other collider is terrain.
+            Assert.Equal(LaunchDustSurface.Launchpad, GhostPlaybackLogic.ClassifyLaunchDustHit(true, false));
+            Assert.Equal(LaunchDustSurface.Launchpad, GhostPlaybackLogic.ClassifyLaunchDustHit(true, true));
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifyLaunchDustHit(false, true));
+            Assert.Equal(LaunchDustSurface.Terrain, GhostPlaybackLogic.ClassifyLaunchDustHit(false, false));
+            Assert.Equal("LaunchpadFX", GhostPlaybackLogic.LaunchpadFxTag);
+            Assert.Equal("Wheel_Piston_Collider", GhostPlaybackLogic.WheelPistonColliderTag);
+        }
+
+        [Fact]
+        public void DustSurface_OnlyTerrainAndWaterRaiseDust()
+        {
+            Assert.True(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.Terrain));
+            Assert.True(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.Water));
+            Assert.False(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.Launchpad));
+            Assert.False(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.None));
+        }
+
+        [Fact]
+        public void DustLogSignature_ChangesOnSurfaceColliderOrTenthOnly()
+        {
+            int a = GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Terrain, 42, 0.51f);
+            Assert.Equal(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Terrain, 42, 0.59f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Terrain, 42, 0.61f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Launchpad, 42, 0.51f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Terrain, 43, 0.51f));
+            // Out-of-range intensities clamp into the end tenths instead of inventing new keys.
+            Assert.Equal(GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Terrain, 1, 1f),
+                GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.Terrain, 1, 7f));
+            Assert.NotEqual(int.MinValue,
+                GhostPlaybackLogic.ComputeLaunchDustLogSignature(LaunchDustSurface.None, 0, 0f));
+        }
+
+        [Fact]
         public void DustGroundPoint_SitsOnTheGroundStraightBelowTheGhost()
         {
             // A ghost 12 m above its launch ground, on a body whose up here is not world up.

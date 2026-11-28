@@ -308,14 +308,25 @@ namespace Parsek.Tests
             Assert.Single(Regex.Matches(frame, @"state\.launchDustGroundRefAltitude\b").Cast<Match>());
             Assert.Contains("state.launchDustGroundRefAltitude = double.NegativeInfinity;", frame);
             // The ground is the surface stock's ModuleSurfaceFX raycasts for (0x40008000), the
-            // terrain reference only when nothing is hit.
+            // terrain reference only when nothing is hit, and the hit is classified by stock's tags.
             Assert.Equal(0x40008000, GhostPlaybackLogic.LaunchDustSurfaceLayerMask);
-            string place = Body(text, "private static void PlaceLaunchDustOnGround(");
-            Assert.True(place.IndexOf("Physics.Raycast(", StringComparison.Ordinal)
-                < place.IndexOf("ComputeLaunchDustGroundPoint(", StringComparison.Ordinal));
-            Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", place);
-            // Every emitting frame lays the disc flat on the ground under the ghost first.
-            Assert.Matches(@"if \(ps == null\) return;\s*PlaceLaunchDustOnGround\(recIdx, state, altitude, groundRefAltitude\);\s*var emission", frame);
+            string probe = Body(text, "private static LaunchDustSurface ProbeLaunchDustSurface(");
+            Assert.True(probe.IndexOf("Physics.Raycast(", StringComparison.Ordinal)
+                < probe.IndexOf("ComputeLaunchDustGroundPoint(", StringComparison.Ordinal));
+            Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", probe);
+            Assert.Contains("CompareTag(GhostPlaybackLogic.LaunchpadFxTag)", probe);
+            Assert.Contains("GhostPlaybackLogic.ClassifyLaunchDustHit(", probe);
+            // A surface that raises no dust (the pad) drives the dust to zero before any build,
+            // and every emitting frame lays the disc on the probed ground first.
+            Assert.True(frame.IndexOf("LaunchDustSurfaceRaisesDust(surface)", StringComparison.Ordinal)
+                < frame.IndexOf("TryBuildLaunchDust(", StringComparison.Ordinal));
+            Assert.Matches(@"if \(ps == null\) return;\s*PlaceLaunchDustOnGround\(state, ground, up\);\s*var emission", frame);
+            // The log line is built only on a change of what the dust does.
+            // The one log call left in the frame body is the build throttle's.
+            Assert.Single(Regex.Matches(frame, @"ParsekLog\.").Cast<Match>());
+            string log = Body(text, "private static void LogLaunchDustOnChange(");
+            Assert.True(log.IndexOf("if (signature == state.launchDustLogSignature) return;", StringComparison.Ordinal)
+                < log.IndexOf("ParsekLog.VerboseRateLimited(", StringComparison.Ordinal));
         }
 
         #endregion
