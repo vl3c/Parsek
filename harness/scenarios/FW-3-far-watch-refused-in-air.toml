@@ -5,8 +5,8 @@ id = "FW-3-far-watch-refused-in-air"
 # REFUSED WITH STOCK'S OWN REASON, AND NO DRONE IS BUILT.
 #
 # AUTHORED 2026-11-28 (branch `far-watch-step3`, design `docs/dev/design-far-watch.md`
-# 8.2 rule 2 / 12.2 / 17.4). NEVER FLOWN (tag `pending-flight`): every token below is read
-# from the code, none from a flight.
+# 8.2 rule 2 / 12.2 / 17.4). FLOWN GREEN 2026-11-28 (tag `flown`):
+# `2026-11-28_1035` PASS (7fff61662).
 #
 # HOST: `kerbin-splashdown-pod-in-air`, derived from W1's `kerbin-splashdown-recorded` by
 # harness/tools/build_far_watch_pod_fixtures.py (its docstring is the authority): the B4
@@ -53,9 +53,9 @@ id = "FW-3-far-watch-refused-in-air"
 #   9 flight_efficiency.py owed after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Far watch step 3 on kerbin-splashdown-pod-in-air (W1's host with the B4 capsule lifted to 25 km and the clock moved next to the loop anchor): MissionConfig before the anchor keeps it at 21583.965, and FarWatch start mode=follow on the ascent ghost far from the flying capsule is refused unsafe:NOT_IN_ATMOSPHERE with no drone built. NEVER FLOWN (tag pending-flight)."
+description = "Far watch step 3 on kerbin-splashdown-pod-in-air (W1's host with the B4 capsule lifted to 25 km and the clock moved next to the loop anchor): MissionConfig before the anchor keeps it at 21583.965, and FarWatch start mode=follow on the ascent ghost far from the flying capsule is refused unsafe:NOT_IN_ATMOSPHERE with no drone built. Flown green 2026-11-28 (tag flown)."
 instanceProfile = "stock-minimal"
-tags = ["FW-3", "far-watch", "loop-playback", "watch-mode", "kerbin", "pending-flight"]
+tags = ["FW-3", "far-watch", "loop-playback", "watch-mode", "kerbin", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/kerbin-splashdown-pod-in-air"

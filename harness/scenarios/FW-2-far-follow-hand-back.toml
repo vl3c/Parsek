@@ -5,8 +5,8 @@ id = "FW-2-far-follow-hand-back"
 # GHOST'S OWN WARP LIMIT, HANDED BACK TO THE NEAR WATCH WHEN THE GHOST COMES NEAR.
 #
 # AUTHORED 2026-11-28 (branch `far-watch-step3`, design `docs/dev/design-far-watch.md`
-# 8.4 / 12.2 / 17.4). NEVER FLOWN (tag `pending-flight`): every token below is read from
-# the code, none from a flight.
+# 8.4 / 12.2 / 17.4). FLOWN GREEN 2026-11-28 (tag `flown`):
+# `2026-11-28_1110` PASS (bc5a08055; the first flight `_1032` failed only its warp-limit log contract).
 #
 # HOST AND GEOMETRY: W1-watch-distance-cutoff's, verbatim. `kerbin-splashdown-recorded`,
 # the B4 pod LANDED 161 deg of arc east of KSC (the ship; landed and still, so the
@@ -51,9 +51,9 @@ id = "FW-2-far-follow-hand-back"
 #     hand-back the landed pod sets the warp limit again.
 # =====================================================================================
 tier = "operator"
-description = "Far watch step 3 on W1's host kerbin-splashdown-recorded: FarWatch start mode=follow on the coast member 1,069.7 km from the landed pod starts the far watch directly, WarpToUT runs during the watch under the warp limit read at the ghost, and when the descent ghost comes within 250 km the watch hands back and today's near watch resumes. NEVER FLOWN (tag pending-flight)."
+description = "Far watch step 3 on W1's host kerbin-splashdown-recorded: FarWatch start mode=follow on the coast member 1,069.7 km from the landed pod starts the far watch directly, WarpToUT runs during the watch under the warp limit read at the ghost, and when the descent ghost comes within 250 km the watch hands back and today's near watch resumes. Flown green 2026-11-28 (tag flown)."
 instanceProfile = "stock-minimal"
-tags = ["FW-2", "far-watch", "loop-playback", "warp", "watch-mode", "kerbin", "pending-flight"]
+tags = ["FW-2", "far-watch", "loop-playback", "warp", "watch-mode", "kerbin", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
@@ -103,6 +103,9 @@ required = [
   "\\[FarWatchSafety\\] verdict=Allowed reason=None ",
   "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
   "farwatch start complete ",
+  # Clamped (rule=stock:<reason>) or unclamped (rule=stock:none): either proves the limit is
+  # read at the ghost. First flight 2026-11-28_1032 never asked above the ghost's limit and the
+  # build then logged only clamps, so the contract missed.
   "\\[FarWatchWarp\\] warp limit source=ghost rule=stock:",
   "\\[FarWatch\\] ghost came near the ship distToShipKm=[0-9.]+ rec=#[0-9]+; handing back to the near watch",
   "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle reason=GhostNearShip ",
