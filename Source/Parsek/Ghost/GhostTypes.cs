@@ -228,6 +228,8 @@ namespace Parsek
         /// engine's cloned FX, captured before the component is stripped (todo
         /// GHOST-SMOKE-IN-VACUUM). Empty for an engine whose FX carry none.</summary>
         public List<GhostSmokeTrailFade> smokeTrailFades = new List<GhostSmokeTrailFade>();
+        /// <summary>The stock <c>ModuleSurfaceFX</c> this engine drives (launch dust); null when none.</summary>
+        public GhostSurfaceFxSource surfaceFx;
     }
 
     /// <summary>
@@ -439,16 +441,60 @@ namespace Parsek
     }
 
     /// <summary>
-    /// S3 launch dust: ONE Parsek-owned particle system per ghost (the reentry <c>fireParticles</c>
-    /// template — Parsek authored it, so its emission/size multipliers are driven directly).
+    /// Part parity P9 Y3: one engine's stock <c>ModuleSurfaceFX</c>, read off the part prefab at
+    /// ghost build: the ghost's copy of the thrust transform it raycasts along and the module's
+    /// reach, falloff and <c>fxMax</c> (stock defaults 50 m, 2 and 1).
+    /// </summary>
+    internal sealed class GhostSurfaceFxSource
+    {
+        public Transform thrustTransform;
+        public string thrustTransformName;
+        public float fxMax = 1f;
+        public float maxDistance = 50f;
+        public float falloff = 2f;
+    }
+
+    /// <summary>
+    /// One built launch dust emitter: either a copy of stock's own <c>SurfaceFX</c> / <c>WaterFX</c>
+    /// prefab with the stock component removed (its cloud, dust and wake systems kept), or the
+    /// Parsek-built faint fallback disc in <see cref="dust"/> alone. Parsek owns every system, so
+    /// the driver writes their colour and emission directly.
+    /// </summary>
+    internal sealed class LaunchDustEmitter
+    {
+        public GameObject root;
+        public ParticleSystem cloud;
+        public ParticleSystem dust;
+        public ParticleSystem wake;
+        /// <summary>The systems' own start colours, whose alpha the driver replaces (stock keeps the RGB).</summary>
+        public Color cloudColor = Color.white;
+        public Color dustColor = Color.white;
+        public Color wakeColor = Color.white;
+        /// <summary>Scratch for the per-particle push, grown on demand.</summary>
+        public ParticleSystem.Particle[] buffer;
+        /// <summary>True for a copy of stock's prefab, false for the Parsek-built fallback.</summary>
+        public bool stockPrefab;
+        /// <summary>Where it came from, for the logs ("SurfaceFX", "WaterFX", "built").</summary>
+        public string source;
+        public Material material;
+        public Texture2D generatedTexture;
+        /// <summary>The strength last driven (stock's clamped sum of ScaledFX); 0 while stopped.</summary>
+        public float fxScale;
+    }
+
+    /// <summary>
+    /// S3 launch dust: at most one terrain and one water emitter per ghost, built lazily on the
+    /// first frame that draws that surface. A build that fails is never retried.
     /// </summary>
     internal class LaunchDustInfo
     {
-        public GameObject dustObject;
-        public ParticleSystem particles;
-        public Material material;
-        public Texture2D generatedTexture;
+        public LaunchDustEmitter terrain;
+        public LaunchDustEmitter water;
+        public bool terrainUnavailable;
+        public bool waterUnavailable;
         public float lastIntensity;
+        /// <summary>The terrain emitter's root, the object the dust cases and the visibility pass name.</summary>
+        public GameObject dustObject => terrain?.root;
     }
 
     /// <summary>

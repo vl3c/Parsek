@@ -299,10 +299,8 @@ namespace Parsek
                 }
             }
 
-            // S3 launch dust: the intensity bookkeeping resets here; the particle system itself is
-            // stopped by ReapplySpawnTimeModuleBaselinesForLoopCycle (a Unity call). The latched
-            // ground reference is NOT cleared — it is a property of the recording's launch site,
-            // not of the cycle, and re-latching would cost a section scan for no behaviour change.
+            // S3 launch dust: the intensity bookkeeping resets here; the particle systems
+            // themselves are stopped by ReapplySpawnTimeModuleBaselinesForLoopCycle (a Unity call).
             if (state.launchDustInfo != null)
                 state.launchDustInfo.lastIntensity = 0f;
 
@@ -538,8 +536,8 @@ namespace Parsek
             //     numbers claimed neutral — and for the sun pivot that is a panel frozen aimed at
             //     where the Sun was an orbit ago. Launch dust stops here for the same reason.
             RestoreSynthesizedMotionNeutralPoses(state);
-            if (state.launchDustInfo?.particles != null && state.launchDustInfo.particles.isPlaying)
-                state.launchDustInfo.particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            if (state.launchDustInfo != null)
+                GhostVisualBuilder.StopAndClearLaunchDust(state.launchDustInfo);
             // S4: the EVA plume's Unity half of the same reset. Clear as well as stop, so no
             // in-flight particles from the previous cycle survive into the new one.
             if (state.evaJetpackPlumeInfo?.particles != null
