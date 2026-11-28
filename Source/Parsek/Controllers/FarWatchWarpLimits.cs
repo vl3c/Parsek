@@ -62,6 +62,39 @@ namespace Parsek
         internal const double CameraDroneFloorBaseMeters = 20.0;
         internal const double MaxFloorMeters = 1000.0;
 
+        /// <summary>
+        /// The ghost's felt (non-gravitational) acceleration in g between two body-relative states
+        /// <paramref name="dt"/> seconds apart, for stock's <c>geeForce &gt; GThreshold</c> test (8.4).
+        /// Read from the change of the two coast invariants, the specific orbital energy and the
+        /// angular momentum's magnitude, which gravity alone never changes: a coast reads 0 g
+        /// however long the window (high warp), where a finite difference of the velocity minus
+        /// the end point's gravity reads the gravity vector's turn over the window as g. Only
+        /// magnitudes are compared, so a frame that rotates between the samples (KSP's inverse
+        /// rotation) changes nothing. A burn along or across the path reads its acceleration; a
+        /// purely radial push on a circular coast or a pure plane change changes neither invariant
+        /// to first order and reads near 0 (they stay under stock's other limits).
+        /// </summary>
+        internal static double NonGravitationalGee(Vector3d r0, Vector3d v0, Vector3d r1, Vector3d v1, double mu, double dt)
+        {
+            if (!(dt > 0.0) || !(mu > 0.0))
+                return 0.0;
+            double rm0 = r0.magnitude, rm1 = r1.magnitude;
+            if (!(rm0 > 0.0) || !(rm1 > 0.0) || double.IsInfinity(rm0) || double.IsInfinity(rm1))
+                return 0.0;
+            double e0 = v0.sqrMagnitude / 2.0 - mu / rm0;
+            double e1 = v1.sqrMagnitude / 2.0 - mu / rm1;
+            double vMean = (v0.magnitude + v1.magnitude) / 2.0;
+            double rMean = (rm0 + rm1) / 2.0;
+            double along = vMean > 1e-6 ? Math.Abs(e1 - e0) / (vMean * dt) : 0.0;
+            double h0 = Vector3d.Cross(r0, v0).magnitude;
+            double h1 = Vector3d.Cross(r1, v1).magnitude;
+            double across = Math.Abs(h1 - h0) / (rMean * dt);
+            double a = Math.Max(along, across);
+            return double.IsNaN(a) || double.IsInfinity(a) ? 0.0 : a / StandardGravity;
+        }
+
+        internal const double StandardGravity = 9.80665;
+
         internal static FarWatchWarpResult EvaluateStock(FarWatchWarpInputs i)
         {
             var res = new FarWatchWarpResult { RateIndex = i.TargetRateIndex, Reason = ClearToSaveStatus.CLEAR };

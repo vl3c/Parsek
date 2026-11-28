@@ -189,6 +189,12 @@ namespace Parsek.Patches
             if (vessel == null)
                 return true;
 
+            // A far watch runs (design-far-watch.md 8.5, ruled): the drone holds focus, so no
+            // gate below may read it as the active vessel. Hand back first; the same gates and
+            // switch run once the ship is active again (ReplayOwnedVesselSwitch).
+            if (TryDeferSwitchUntilFarWatchEnds(vessel, reFlyPath, label))
+                return false;
+
             // Design section 2.12 Rule 3: during a Re-Fly session only the re-flown vessel
             // and its own EVA crew can be flown. The refusal runs before the pre-switch
             // dialog decision, so only a switch between the re-flown vessel and its own crew
@@ -272,6 +278,51 @@ namespace Parsek.Patches
                 $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
                 $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
             return true;
+        }
+
+        /// <summary>
+        /// The far-watch step of <see cref="PrepareOwnedVesselSwitch"/>: true when a far watch
+        /// runs and took the switch as "end the watch, then switch" (8.5).
+        /// </summary>
+        private static bool TryDeferSwitchUntilFarWatchEnds(Vessel vessel, string reFlyPath, string label)
+        {
+            ParsekFlight flight = ParsekFlight.Instance;
+            FarWatchController fw = flight != null ? flight.FarWatch : null;
+            bool running = fw != null && fw.IsRunning;
+            if (FarWatchDecisions.DecideOwnedVesselSwitch(running) != FarWatchSwitchRoute.EndWatchThenReplay)
+                return false;
+            ParsekLog.Info("SwitchIntentPatch",
+                $"{label} during a far watch targetPid={vessel.persistentId}: ending the watch first, the switch runs after the hand-back");
+            fw.RequestEndThenSwitch(vessel, label, target => ReplayOwnedVesselSwitch(target, reFlyPath, label));
+            return true;
+        }
+
+        /// <summary>
+        /// A switch taken during a far watch, run after the hand-back (8.5): the same gates as the
+        /// click (<see cref="PrepareOwnedVesselSwitch"/>: the Re-Fly refusal, the pre-switch
+        /// dialog, the intent arm), then stock's own <c>SetActiveVessel</c> when they let it run,
+        /// and the unconsumed intent cleared as the stock click's Postfix would.
+        /// </summary>
+        internal static void ReplayOwnedVesselSwitch(Vessel target, string reFlyPath, string label)
+        {
+            Guid intentId;
+            bool runStock = PrepareOwnedVesselSwitch(target, reFlyPath, label + " (after far watch)", out intentId);
+            ParsekLog.Info("SwitchIntentPatch",
+                $"{label} replayed after the far watch targetPid={(target != null ? target.persistentId : 0u)} runStock={runStock}");
+            if (!runStock || target == null)
+                return;
+            try
+            {
+                FlightGlobals.SetActiveVessel(target);
+                if (reFlyPath == ReFlySwitchGate.PathMapSwitchTo && MapView.MapIsEnabled)
+                    MapView.ExitMapView();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("SwitchIntentPatch",
+                    $"{label} replay: FlightGlobals.SetActiveVessel threw {ex.GetType().Name}: {ex.Message}");
+            }
+            ClearUnconsumedIntent(intentId, label);
         }
 
         /// <summary>What <see cref="TryTakePreSwitch"/> did with a switch.</summary>

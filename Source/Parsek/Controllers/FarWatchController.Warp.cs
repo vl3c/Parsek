@@ -24,6 +24,7 @@ namespace Parsek
         private bool postTeardownPending;
         private string postTeardownResumeId;
         private Vessel postTeardownSwitchTarget;
+        private Action<Vessel> postTeardownSwitchReplay;
         private FarWatchReturnCause postTeardownMessageCause;
         private string postTeardownShipName;
 
@@ -52,14 +53,16 @@ namespace Parsek
             if (double.IsNaN(prevGhostVUT) || ut < prevGhostVUT)
             {
                 prevGhostVObt = vObt;
+                prevGhostR = r;
                 prevGhostVUT = ut;
                 ghostGee = 0.0;
             }
             else if (ut - prevGhostVUT >= GeeWindowSeconds)
             {
-                Vector3d accel = (vObt - prevGhostVObt) / (ut - prevGhostVUT);
-                ghostGee = (accel + up * g).magnitude / 9.80665;
+                ghostGee = FarWatchWarpLimits.NonGravitationalGee(prevGhostR, prevGhostVObt, r, vObt,
+                    body.gravParameter, ut - prevGhostVUT);
                 prevGhostVObt = vObt;
+                prevGhostR = r;
                 prevGhostVUT = ut;
             }
             FarWatchConic conic;
@@ -313,12 +316,28 @@ namespace Parsek
             if (postTeardownSwitchTarget != null)
             {
                 Vessel target = postTeardownSwitchTarget;
+                bool alive = IsVesselAliveCore(target);
+                bool active = alive && IsActiveVesselCore(target);
+                FarWatchPostSwitch d = FarWatchDecisions.DecidePostTeardownSwitch(true, alive, active,
+                    postTeardownSwitchReplay != null);
                 ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
-                    "switch after the hand-back target={0} loaded={1}", target.persistentId, target.loaded));
-                SetActiveVesselCore(target);
+                    "switch after the hand-back target={0} loaded={1} decision={2}",
+                    alive ? target.persistentId : 0u, alive && target.loaded, d));
+                if (d == FarWatchPostSwitch.ReplayThroughGates)
+                {
+                    try
+                    {
+                        postTeardownSwitchReplay(target);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn(Tag, "the switch after the hand-back threw " + ex.GetType().Name + ": " + ex.Message);
+                    }
+                }
             }
             postTeardownResumeId = null;
             postTeardownSwitchTarget = null;
+            postTeardownSwitchReplay = null;
             postTeardownMessageCause = FarWatchReturnCause.None;
         }
 
@@ -331,21 +350,36 @@ namespace Parsek
             postTeardownShipName = shipName;
             postTeardownResumeId = resumeNearWatchRecordingId;
             postTeardownSwitchTarget = pendingSwitchTarget;
+            postTeardownSwitchReplay = pendingSwitchReplay;
             forcedReturnCause = FarWatchReturnCause.None;
             resumeNearWatchRecordingId = null;
             pendingSwitchTarget = null;
+            pendingSwitchReplay = null;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void SetActiveVesselCore(Vessel target)
+        private static bool IsVesselAliveCore(Vessel v)
         {
             try
             {
-                FlightGlobals.SetActiveVessel(target);
+                return v != null && v.state != Vessel.State.DEAD;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                ParsekLog.Warn("FarWatch", "SetActiveVessel after the hand-back threw " + ex.GetType().Name);
+                return false;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsActiveVesselCore(Vessel v)
+        {
+            try
+            {
+                return FlightGlobals.ActiveVessel == v;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
     }

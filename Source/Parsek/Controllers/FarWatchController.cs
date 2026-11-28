@@ -121,11 +121,13 @@ namespace Parsek
         // this vessel (8.5).
         private string resumeNearWatchRecordingId;
         private Vessel pendingSwitchTarget;
+        // The switch's own gated path (the Re-Fly refusal, the pre-switch dialog, the intent arm),
+        // replayed once the hand-back is done (8.5); a switch never bypasses them.
+        private Action<Vessel> pendingSwitchReplay;
         // A direct far start (W on a far ghost): watch mode is entered at the drone's arrival.
         private int pendingWatchEntryIndex = -1;
-        // The takeover refusal of the current near watch (the snap-back message names it).
-        private string takeoverRefusalText;
-        private string takeoverRefusalRecordingId;
+        // The takeover attempts of the current near watch (paced; the snap-back message names the refusal).
+        private readonly FarWatchTakeoverGate takeoverGate = new FarWatchTakeoverGate();
 
         // The watched ghost's state as the warp limits read it (8.4), refreshed every follow tick.
         private bool ghostWarpValid;
@@ -135,6 +137,7 @@ namespace Parsek
         private bool ghostHasConic;
         private FarWatchConic ghostConic;
         private Vector3d prevGhostVObt;
+        private Vector3d prevGhostR;
         private double prevGhostVUT = double.NaN;
         private string warpLimitCause = "none";
         internal bool ModeSwitchTokenHeld { get; private set; }
@@ -174,7 +177,9 @@ namespace Parsek
             string pending = null;
             if (!IsRunning)
             {
-                try { cts = FlightGlobals.ClearToSave(); } catch (Exception) { cts = ClearToSaveStatus.CLEAR; }
+                // logMsg false: the no-arg overload posts stock's refusal as a screen message,
+                // and this runs on the Watch buttons' poll.
+                try { cts = FlightGlobals.ClearToSave(false); } catch (Exception) { cts = ClearToSaveStatus.CLEAR; }
                 string entry = FarWatchTransitions.EvaluateEntryRefusal(host.BuildFarWatchEntryInputs(-1, false, false));
                 if (FarWatchTransitions.IsPendingWindowRefusal(entry))
                     pending = entry;
@@ -254,6 +259,31 @@ namespace Parsek
                 try { stock = KSP.Localization.Localizer.Format(key); } catch (Exception) { stock = null; }
             }
             return FarWatchShipSafety.HoverText(v.Reason, stock);
+        }
+
+        /// <summary>
+        /// The one far-start predicate (8.1 to 8.3, D1): the entry refusals of
+        /// <see cref="FarWatchTransitions.EvaluateEntryRefusal"/> first, then the ship's safety
+        /// verdict. A Watch button's enabled state, its hover reason, the click, the takeover
+        /// and <see cref="TryStart"/> all read it.
+        /// </summary>
+        internal FarWatchStartCheck EvaluateFarStart(int recordingIndex, bool follow, string trigger, bool useCache)
+        {
+            var c = new FarWatchStartCheck();
+            string entry = FarWatchTransitions.EvaluateEntryRefusal(host.BuildFarWatchEntryInputs(recordingIndex, IsRunning, follow));
+            FarWatchRefusal reason = FarWatchRefusal.None;
+            bool allowed = true;
+            if (entry == null)
+            {
+                c.Verdict = EvaluateAdmission(trigger, useCache);
+                c.HasVerdict = true;
+                allowed = c.Verdict.IsAllowed;
+                reason = c.Verdict.Reason;
+            }
+            c.Refusal = FarWatchDecisions.CombineStartRefusal(entry, allowed, reason);
+            if (c.Refusal != null)
+                c.Hover = entry == null ? DescribeRefusalForHover(c.Verdict) : FarWatchDecisions.StartRefusalHover(entry, reason, null);
+            return c;
         }
 
         private void AdoptVerdict(FarWatchSafetyVerdict v)
@@ -336,60 +366,78 @@ namespace Parsek
 
         /// <summary>
         /// Takeover from the near watch at 290 km (8.4): starts the far watch on the watched ghost
-        /// when the ship is safe. A refusal is remembered for this watch, so the 300 km snap-back
-        /// shows stock's reason once.
+        /// when the far start is allowed. Every refusal paces the next attempt to one per real
+        /// second (<see cref="FarWatchTakeoverGate"/>) and is remembered for this watch, so the
+        /// 300 km snap-back names its reason once.
         /// </summary>
         internal void CheckTakeover(int recordingIndex, string recordingId, double distanceToShip, bool ghostOnShipBody)
         {
             if (!FarWatchDecisions.ShouldTakeOver(host.IsWatchingGhost, state, ghostOnShipBody, distanceToShip))
                 return;
-            if (takeoverRefusalRecordingId != null && takeoverRefusalRecordingId == recordingId
-                && Time.realtimeSinceStartup - cachedVerdictRealTime < 1f)
+            double real = Time.realtimeSinceStartup;
+            if (!takeoverGate.ShouldAttempt(recordingId, real))
                 return;
-            string refusal;
-            ParsekLog.Info(Tag, string.Format(ic, "takeover requested rec=#{0} id={1} distToShipKm={2}",
-                recordingIndex, recordingId ?? "(null)", (distanceToShip / 1000.0).ToString("F1", ic)));
-            if (TryStart(recordingIndex, true, false, out refusal))
+            string line = string.Format(ic, "takeover requested rec=#{0} id={1} distToShipKm={2}",
+                recordingIndex, recordingId ?? "(null)", (distanceToShip / 1000.0).ToString("F1", ic));
+            if (takeoverGate.IsFirstAttempt(recordingId))
+                ParsekLog.Info(Tag, line);
+            else
+                ParsekLog.VerboseRateLimited(Tag, "takeover-requested", line, 5.0);
+            FarWatchStartCheck check = EvaluateFarStart(recordingIndex, true, "takeover", useCache: false);
+            string refusal = check.Refusal;
+            if (refusal == null && TryStart(recordingIndex, true, false, out refusal))
             {
-                takeoverRefusalRecordingId = null;
-                takeoverRefusalText = null;
+                takeoverGate.Clear();
                 return;
             }
-            takeoverRefusalRecordingId = recordingId;
-            takeoverRefusalText = hasCachedVerdict && !cachedVerdict.IsAllowed
-                ? DescribeRefusalForHover(cachedVerdict)
-                : null;
-            ParsekLog.InfoRateLimited(Tag, "takeover-refused-" + (refusal ?? "none"),
-                "takeover refused reason=" + (refusal ?? "(none)") + " rec=#" + recordingIndex.ToString(ic), 5.0);
+            // A refusal past the predicate (watch entry, the build) has no player-facing reason.
+            string hover = check.Refusal != null ? check.Hover : null;
+            bool changed = takeoverGate.RecordRefusal(recordingId, real, refusal ?? "(none)", hover);
+            string refusedLine = "takeover refused reason=" + (refusal ?? "(none)") + " rec=#" + recordingIndex.ToString(ic);
+            if (changed)
+                ParsekLog.Info(Tag, refusedLine);
+            else
+                ParsekLog.VerboseRateLimited(Tag, "takeover-refused-" + (refusal ?? "none"), refusedLine, 5.0);
         }
 
         /// <summary>
         /// Today's snap-back at the near-watch cutoff (8.4): when the takeover of this watch was
-        /// refused, one screen message names stock's reason (ruled).
+        /// refused, one screen message names that refusal's reason (ruled).
         /// </summary>
         internal void OnNearWatchSnapBack(string recordingId)
         {
-            if (takeoverRefusalRecordingId == null || takeoverRefusalRecordingId != recordingId)
+            string msg = takeoverGate.TakeSnapBackMessage(recordingId);
+            if (msg == null)
                 return;
-            string msg = FarWatchDecisions.SnapBackMessage(takeoverRefusalText);
             ParsekLog.Info(Tag, "snap-back screen message: " + msg);
             ParsekLog.ScreenMessage(msg, 5f);
-            takeoverRefusalRecordingId = null;
-            takeoverRefusalText = null;
         }
 
         /// <summary>
-        /// A W / Watch request (12.2). True when the far watch took it (a direct far start, or a
-        /// hand-back before a near watch); false leaves it to today's watch entry.
+        /// The W / Watch decision for recording <paramref name="recordingIndex"/> (12.2), one for
+        /// the button and the click (D1): the far start reads <see cref="EvaluateFarStart"/>, and
+        /// a running far watch takes a W only in Following. <paramref name="hover"/> is the
+        /// refusal's hover reason, or null for today's.
         /// </summary>
-        internal bool TryRouteWatchRequest(int recordingIndex, string recordingId, bool ghostOnShipBody, double distanceToShip)
+        internal FarWatchWatchRequest DecideWatchRequest(int recordingIndex, bool ghostResolvable, bool isWatchedIndex,
+            bool ghostOnShipBody, double distanceToShip, string trigger, bool useCache, out string hover)
         {
-            bool allowed = state == FarWatchState.Idle && ghostOnShipBody
-                && distanceToShip >= FarWatchDecisions.NearWatchRangeMeters
-                && EvaluateAdmission("watch-request", useCache: false).IsAllowed;
-            FarWatchWatchRequest d = FarWatchDecisions.DecideWatchRequest(state, ghostOnShipBody, distanceToShip, allowed);
-            ParsekLog.Info(Tag, string.Format(ic, "watch request rec=#{0} decision={1} state={2} distToShipKm={3}",
-                recordingIndex, d, state, IsFiniteD(distanceToShip) ? (distanceToShip / 1000.0).ToString("F1", ic) : "?"));
+            hover = null;
+            bool farStart = state == FarWatchState.Idle && ghostResolvable && !isWatchedIndex && ghostOnShipBody
+                && IsFiniteD(distanceToShip) && distanceToShip >= FarWatchDecisions.NearWatchRangeMeters;
+            FarWatchStartCheck check = farStart ? EvaluateFarStart(recordingIndex, true, trigger, useCache) : default(FarWatchStartCheck);
+            FarWatchWatchRequest d = FarWatchDecisions.DecideWatchRequest(state, followGhost, ghostResolvable, isWatchedIndex,
+                ghostOnShipBody, distanceToShip, farStart && check.IsAllowed);
+            hover = FarWatchDecisions.WatchRequestHover(d, check.Hover);
+            return d;
+        }
+
+        /// <summary>
+        /// Carries out a W decision the far watch owns (12.2): a direct far start, or a hand-back
+        /// before a near watch. False for any other decision (the caller's).
+        /// </summary>
+        internal bool ActOnWatchRequest(FarWatchWatchRequest d, int recordingIndex, string recordingId)
+        {
             switch (d)
             {
                 case FarWatchWatchRequest.FarWatchDirect:
@@ -415,15 +463,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A switch to another vessel during the watch (map Switch To, alarm Switch To / Jump):
-        /// hand back first, then today's switch runs (8.5, ruled).
+        /// A switch to another vessel during the watch (map Switch To, alarm Jump, any other
+        /// switch the drone's token refused): hand back first, then today's switch runs with its
+        /// own gates (8.5, ruled). <paramref name="gatedReplay"/> is that switch's gated path,
+        /// called with the target once the ship is active again.
         /// </summary>
-        internal void RequestEndThenSwitch(Vessel target, string source)
+        internal void RequestEndThenSwitch(Vessel target, string source, Action<Vessel> gatedReplay)
         {
             if (!IsRunning)
                 return;
             bool toShip = target != null && target == ship;
             pendingSwitchTarget = toShip ? null : target;
+            pendingSwitchReplay = toShip ? null : gatedReplay;
             ParsekLog.Info(Tag, string.Format(ic, "switch requested during far watch target={0} toShip={1} source={2}",
                 target != null ? target.persistentId : 0u, toShip, source ?? "(none)"));
             RequestEnd(FarWatchEndReason.SwitchRequested);
@@ -443,22 +494,17 @@ namespace Parsek
         /// </summary>
         internal bool TryStart(int recordingIndex, bool follow, bool direct, out string refusal)
         {
-            refusal = FarWatchTransitions.EvaluateEntryRefusal(host.BuildFarWatchEntryInputs(recordingIndex, IsRunning, follow));
+            // Entry (8.3) and admission (8.2): the ship must be safe on rails for the whole
+            // watch, or until a return point far enough ahead.
+            FarWatchStartCheck check = EvaluateFarStart(recordingIndex, follow, "start", useCache: false);
+            refusal = check.Refusal;
             if (refusal != null)
             {
-                ParsekLog.Info(Tag, string.Format(ic, "start refused reason={0} rec=#{1}", refusal, recordingIndex));
+                ParsekLog.InfoRateLimited(Tag, "start-refused-" + refusal,
+                    string.Format(ic, "start refused reason={0} rec=#{1}", refusal, recordingIndex), 5.0);
                 return false;
             }
-
-            // Admission (8.2): the ship must be safe on rails for the whole watch, or until a
-            // return point far enough ahead.
-            FarWatchSafetyVerdict admission = EvaluateAdmission("start", useCache: false);
-            if (!admission.IsAllowed)
-            {
-                refusal = "unsafe:" + FarWatchShipSafety.RefusalToken(admission.Reason);
-                ParsekLog.Info(Tag, string.Format(ic, "start refused reason={0} rec=#{1}", refusal, recordingIndex));
-                return false;
-            }
+            FarWatchSafetyVerdict admission = check.Verdict;
 
             Vessel active = FlightGlobals.ActiveVessel;
             // Follow needs the ghost camera; a hold watch keeps the camera on the drone beside
@@ -476,7 +522,7 @@ namespace Parsek
             else
             {
                 if (follow && (!host.IsWatchingGhost || host.WatchedRecordingIndex != recordingIndex))
-                    host.EnterWatchMode(recordingIndex);
+                    host.EnterNearWatch(recordingIndex);
                 if (follow && (!host.IsWatchingGhost || host.WatchedRecordingIndex != recordingIndex))
                 {
                     refusal = "watch-entry-refused";
@@ -565,6 +611,7 @@ namespace Parsek
             forcedReturnCause = FarWatchReturnCause.None;
             resumeNearWatchRecordingId = null;
             pendingSwitchTarget = null;
+            pendingSwitchReplay = null;
             pendingWatchEntryIndex = -1;
             pendingWatchEntryReady = false;
             postTeardownPending = false;

@@ -400,16 +400,71 @@ namespace Parsek.Tests
             Assert.True(FarWatchDecisions.SuppressNearWatchCutoff(FarWatchState.Following));
         }
 
+        private static FarWatchWatchRequest W(FarWatchState state, double dist, bool sameBody = true,
+            bool startAllowed = true, bool followingGhost = true, bool resolvable = true, bool watched = false)
+        {
+            return FarWatchDecisions.DecideWatchRequest(state, followingGhost, resolvable, watched, sameBody, dist, startAllowed);
+        }
+
         [Fact]
         public void WatchRequest_Table()
         {
-            Assert.Equal(FarWatchWatchRequest.NearWatch, FarWatchDecisions.DecideWatchRequest(FarWatchState.Idle, true, 100000.0, false));
-            Assert.Equal(FarWatchWatchRequest.FarWatchDirect, FarWatchDecisions.DecideWatchRequest(FarWatchState.Idle, true, 500000.0, true));
-            Assert.Equal(FarWatchWatchRequest.RefusedUnsafe, FarWatchDecisions.DecideWatchRequest(FarWatchState.Idle, true, 500000.0, false));
-            Assert.Equal(FarWatchWatchRequest.RefusedOtherBody, FarWatchDecisions.DecideWatchRequest(FarWatchState.Idle, false, 100.0, true));
-            Assert.Equal(FarWatchWatchRequest.HandBackThenNearWatch, FarWatchDecisions.DecideWatchRequest(FarWatchState.Following, true, 100000.0, false));
-            Assert.Equal(FarWatchWatchRequest.FollowInFarWatch, FarWatchDecisions.DecideWatchRequest(FarWatchState.Following, true, 900000.0, false));
-            Assert.Equal(FarWatchWatchRequest.RefusedOtherBody, FarWatchDecisions.DecideWatchRequest(FarWatchState.Following, false, 900000.0, true));
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, 100000.0, startAllowed: false));
+            Assert.Equal(FarWatchWatchRequest.FarWatchDirect, W(FarWatchState.Idle, 500000.0));
+            Assert.Equal(FarWatchWatchRequest.RefusedUnsafe, W(FarWatchState.Idle, 500000.0, startAllowed: false));
+            Assert.Equal(FarWatchWatchRequest.RefusedOtherBody, W(FarWatchState.Idle, 500000.0, sameBody: false));
+            // A near ghost on another body, an unresolvable ghost and no distance are today's entry.
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, 100.0, sameBody: false));
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, 500000.0, resolvable: false));
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, double.NaN));
+            Assert.Equal(FarWatchWatchRequest.HandBackThenNearWatch, W(FarWatchState.Following, 100000.0, startAllowed: false));
+            Assert.Equal(FarWatchWatchRequest.FollowInFarWatch, W(FarWatchState.Following, 900000.0, startAllowed: false));
+            Assert.Equal(FarWatchWatchRequest.RefusedOtherBody, W(FarWatchState.Following, 900000.0, sameBody: false));
+            // W on the watched ghost is today's toggle off, in every state.
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Spawning, 900000.0, watched: true));
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Following, 900000.0, watched: true));
+        }
+
+        // catches: a W during the far watch's transitions (Spawning, HandoverOut, HandoverBack,
+        // Teardown, Aborted) or in a hold watch reaching the follow switch, which enters watch
+        // mode with the 300 km guard skipped and parks the camera on a far ghost while the drone
+        // is not following it.
+        [Theory]
+        [InlineData((int)FarWatchState.Spawning)]
+        [InlineData((int)FarWatchState.HandoverOut)]
+        [InlineData((int)FarWatchState.HandoverBack)]
+        [InlineData((int)FarWatchState.Teardown)]
+        [InlineData((int)FarWatchState.Aborted)]
+        public void WatchRequest_OutsideFollowing_IsRefused(int stateValue)
+        {
+            var state = (FarWatchState)stateValue;
+            Assert.Equal(FarWatchWatchRequest.RefusedWatchSettling, W(state, 900000.0));
+            Assert.Equal(FarWatchWatchRequest.RefusedWatchSettling, W(state, 100000.0));
+            Assert.False(FarWatchDecisions.IsActionable(W(state, 900000.0)));
+            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(W(state, 900000.0), state));
+            Assert.Equal(FarWatchDecisions.SettlingHoverText,
+                FarWatchDecisions.WatchRequestHover(FarWatchWatchRequest.RefusedWatchSettling, null));
+        }
+
+        [Fact]
+        public void WatchRequest_HoldWatch_RefusesTheFollowSwitch_KeepsTheHandBack()
+        {
+            Assert.Equal(FarWatchWatchRequest.RefusedHoldWatch, W(FarWatchState.Following, 900000.0, followingGhost: false));
+            Assert.Equal(FarWatchWatchRequest.HandBackThenNearWatch, W(FarWatchState.Following, 100000.0, followingGhost: false));
+            Assert.Equal(FarWatchShipSafety.StopWatchingFirstHoverText,
+                FarWatchDecisions.WatchRequestHover(FarWatchWatchRequest.RefusedHoldWatch, null));
+        }
+
+        [Fact]
+        public void WatchRequest_IdleRefusals_FallToTodaysEntry_RunningRefusalsDoNothing()
+        {
+            Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedUnsafe, FarWatchState.Idle));
+            Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedOtherBody, FarWatchState.Idle));
+            Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.NearWatch, FarWatchState.Following));
+            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedOtherBody, FarWatchState.Following));
+            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedHoldWatch, FarWatchState.Following));
+            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.FarWatchDirect, FarWatchState.Idle));
+            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.FollowInFarWatch, FarWatchState.Following));
         }
 
         [Fact]
@@ -456,7 +511,9 @@ namespace Parsek.Tests
                 FarWatchDecisions.ForcedReturnMessage(FarWatchReturnCause.Alarm, null));
             Assert.Equal("Watch ended at 300 km: Not in atmosphere",
                 FarWatchDecisions.SnapBackMessage("Not in atmosphere"));
-            Assert.Contains(FarWatchShipSafety.SafetyHoverText, FarWatchDecisions.SnapBackMessage(null));
+            // No reason (a refusal with no player-facing sentence): the event alone, never the
+            // ship-orbit sentence.
+            Assert.Equal("Watch ended at 300 km", FarWatchDecisions.SnapBackMessage(null));
         }
 
         [Fact]
