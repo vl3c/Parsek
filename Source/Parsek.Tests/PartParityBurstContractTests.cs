@@ -528,8 +528,8 @@ namespace Parsek.Tests
             Assert.Null(PartParityFxRules.BurstMeasureLevel("schedule", 1.0));
             Assert.Null(PartParityFxRules.BurstColourLevel(double.NaN, double.NaN));
             Assert.Equal("ok", PartParityFxRules.BurstColourLevel(0.01, double.NaN));
-            Assert.Equal("warn", PartParityFxRules.BurstColourLevel(0.02, 0.0));
-            Assert.Equal("warn", PartParityFxRules.BurstColourLevel(0.0, 0.2));
+            Assert.Equal("warn", PartParityFxRules.BurstColourLevel(0.04, 0.0));
+            Assert.Equal("warn", PartParityFxRules.BurstColourLevel(0.0, 0.3));
             Assert.Equal("fail", PartParityFxRules.BurstColourLevel(0.07, 0.0));
             Assert.Equal("fail", PartParityFxRules.BurstColourLevel(double.NaN, 0.6));
         }

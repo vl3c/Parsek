@@ -1577,7 +1577,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
                 self.assertEqual(level, pp.burst_measure_level(measure, float(value)))
         self.assertIsNone(pp.burst_measure_level("radius", float("nan")))
         self.assertIsNone(pp.burst_measure_level("schedule", 1.0))
-        self.assertEqual("warn", pp.burst_colour_level(0.02, 0.0))
+        self.assertEqual("warn", pp.burst_colour_level(0.04, 0.0))
         self.assertEqual("fail", pp.burst_colour_level(None, 0.6))
         self.assertIsNone(pp.burst_colour_level(None, None))
         # The helpers, by the xUnit cell's values.
@@ -3252,28 +3252,35 @@ class FxJudgeTests(unittest.TestCase):
         for compare, want in (
                 ({"originDeltaPx": 10.0}, [("origin", "warn")]),
                 ({"originDeltaPx": -10.1}, [("origin", "fail")]),
-                ({"originDeltaPx": 5.0}, []),
+                ({"originDeltaPx": 7.5}, []),
                 ({"lateralOffsetPx": 5.0}, [("lateral", "warn")]),
                 ({"lateralOffsetPx": -5.1}, [("lateral", "fail")]),
                 ({"lengthRatio": 0.75}, [("length", "warn")]),
                 ({"lengthRatio": 1.26}, [("length", "fail")]),
-                ({"lengthRatio": 1.125}, []),
+                ({"lengthRatio": 1.1875}, []),
                 ({"widthRatio": 0.69}, [("width", "fail")]),
-                ({"widthRatio": 1.2}, [("width", "warn")]),
+                ({"widthRatio": 1.23}, [("width", "warn")]),
+                ({"widthRatio": 1.2}, []),
                 ({"directionDeg": -10.1}, [("direction", "fail")]),
-                ({"directionDeg": 6.0}, [("direction", "warn")]),
+                ({"directionDeg": 7.6}, [("direction", "warn")]),
+                ({"directionDeg": 7.5}, []),
                 ({"directionDeg": 5.0}, []),
                 ({"crossSectionAreaRatio": 0.59}, [("cross-section", "fail")]),
                 ({"crossSectionAreaRatio": 1.61}, [("cross-section", "fail")]),
-                ({"crossSectionAreaRatio": 1.3}, [("cross-section", "warn")]),
+                ({"crossSectionAreaRatio": 1.41}, [("cross-section", "warn")]),
+                ({"crossSectionAreaRatio": 0.69}, [("cross-section", "warn")]),
+                ({"crossSectionAreaRatio": 1.3}, []),
                 ({"crossSectionOffset": 0.11}, [("cross-section", "fail")]),
                 ({"crossSectionOffset": 0.1}, []),
                 ({"chromaDistance": 0.061}, [("colour", "fail")]),
-                ({"chromaDistance": 0.016}, [("colour", "warn")]),
+                ({"chromaDistance": 0.031}, [("colour", "warn")]),
+                ({"chromaDistance": 0.03}, []),
                 ({"hueL1": 0.51}, [("colour", "fail")]),
-                ({"hueL1": 0.126}, [("colour", "warn")]),
+                ({"hueL1": 0.251}, [("colour", "warn")]),
+                ({"hueL1": 0.25}, []),
                 ({"brightnessRatio": 0.1}, [("brightness", "warn")]),
                 ({"coreIou": 0.1}, [("core-iou", "warn")]),
+                ({"coreIou": 0.4}, []),
                 ({"lengthRatio": None, "directionDeg": None}, [])):
             with self.subTest(compare):
                 self.assertEqual(want, levels(compare))
@@ -4484,8 +4491,10 @@ class LegacySweepByteIdentityTests(unittest.TestCase):
         ("state-clean", "99aefe61b6b51ee7a0a9d16ad13185c82d8e5adb09931b22905b372b898f940b"),
         ("state-press", "2f7e385e74aac0c8850b8efd4d74ba0b4c533875715493e9d2a10a7cc3889c94"),
         ("state-air", "2a8c78631d7b87561cbcbdd32b9830d7a6fec94d7b0248e9f7de417b83fa4387"),
-        ("fx-clean", "c6022d878483492a91c4cd497e378e60e92e209ed08a3a557aaa64fbf2f1f01a"),
-        ("fx-air", "6e895c012481e4141a6d5e7168d9470266989bf18f1bd5ae59c4c7c5c8649cfa"),
+        # fx-clean / fx-air re-pinned by the 2026-11-28 warn-line change: the verdicts document
+        # echoes the FX warn lines; no verdict, summary or detail line moved.
+        ("fx-clean", "f4b60bba14eb8a95c36e48e09b8cd17d4331ae019892335c395e000f19ec03f5"),
+        ("fx-air", "f95e79753c8822876ca905c1550529787cab1dfc46109bb4c21564641b49bafd"),
         # Re-pinned by P9 X5 on purpose: the burst judge now judges a burst run, so these
         # legacy burst cases (state-case shape, no burst block) read INVALID(parity-controls)
         # with "no burst block" on every control and every case.

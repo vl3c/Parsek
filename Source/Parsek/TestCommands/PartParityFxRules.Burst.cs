@@ -452,7 +452,7 @@ namespace Parsek.TestCommands
 
         /// <summary>E.4's colour lines over a burst's chromaticity distance and hue L1 (either
         /// NaN reads as unmeasured): fail over <see cref="ChromaFail"/> or <see cref="HueL1Fail"/>,
-        /// warn over a quarter of either.</summary>
+        /// warn over half of either.</summary>
         internal static string BurstColourLevel(double chromaDistance, double hueL1)
         {
             bool c = !double.IsNaN(chromaDistance), h = !double.IsNaN(hueL1);

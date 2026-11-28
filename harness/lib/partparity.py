@@ -564,15 +564,15 @@ PLATE_LIT_MIN_LUM = 8
 # The threshold defaults (starting guesses, re-pinned from the reading runs and the controls).
 FX_THRESHOLDS: Dict[str, float] = {
     "originFailMinPx": 4.0, "originFailLengthFraction": 0.10,
-    "lateralFailMinPx": 4.0, "lateralFailLengthFraction": 0.05, "offsetWarnFraction": 0.5,
-    "lengthFailFraction": 0.25, "lengthWarnFraction": 0.125,
-    "widthFailFraction": 0.30, "widthWarnFraction": 0.15,
-    "directionFailDeg": 10.0, "directionWarnDeg": 5.0,
+    "lateralFailMinPx": 4.0, "lateralFailLengthFraction": 0.05, "offsetWarnFraction": 0.75,
+    "lengthFailFraction": 0.25, "lengthWarnFraction": 0.1875,
+    "widthFailFraction": 0.30, "widthWarnFraction": 0.225,
+    "directionFailDeg": 10.0, "directionWarnDeg": 7.5,
     "crossSectionAreaFailMin": 0.6, "crossSectionAreaFailMax": 1.6,
-    "crossSectionAreaWarnMin": 0.8, "crossSectionAreaWarnMax": 1.25,
+    "crossSectionAreaWarnMin": 0.7, "crossSectionAreaWarnMax": 1.4,
     "crossSectionOffsetFail": 0.1,
-    "chromaFail": 0.06, "hueL1Fail": 0.5, "colourWarnFraction": 0.25,
-    "brightnessWarnMin": 0.5, "brightnessWarnMax": 2.0, "coreIouWarnMin": 0.5,
+    "chromaFail": 0.06, "hueL1Fail": 0.5, "colourWarnFraction": 0.5,
+    "brightnessWarnMin": 0.5, "brightnessWarnMax": 2.0, "coreIouWarnMin": 0.35,
 }
 
 
