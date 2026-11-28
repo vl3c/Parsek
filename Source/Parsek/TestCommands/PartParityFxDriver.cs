@@ -112,6 +112,7 @@ namespace Parsek.TestCommands
             facts.Present = true;
             foreach (PartModule m in e.Info.partPrefab.Modules)
                 if (m != null && m.moduleName == PartParityFxRules.ModuleWaterfallFx) facts.HasWaterfall = true;
+            facts.HasSurfaceFx = e.Info.partPrefab.FindModuleImplementing<ModuleSurfaceFX>() != null;
             // A light counts only when the part has a lit plate case to photograph: a cockpit's
             // interior light is a Light component no ModuleLight turns on.
             bool lamp = false;

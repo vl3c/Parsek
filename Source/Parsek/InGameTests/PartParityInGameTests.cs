@@ -72,14 +72,24 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "PartParity", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             BatchSkipReason = "Isolated-run only - spawns, presses and removes one-part vessels around the active vessel; needs a stable orbit.",
-            Description = "Part ghost parity, state filter: the acceptance parts at every orbit state (states=all) photographed on three ghosts into parsek-partparity/ingame-state-<n>/, then the FX (ingame-fx-<n>/) and motion (ingame-motion-<n>/) filters")]
+            Description = "Part ghost parity, state filter: the acceptance parts at every orbit state (states=all) photographed on three ghosts into parsek-partparity/ingame-state-<n>/, then the FX (ingame-fx-<n>/) and motion (ingame-motion-<n>/) filters; from a pad host instead the burst (ingame-burst/) and dust (ingame-dust/) filters")]
         public IEnumerator SweepStateAcceptanceSet()
         {
             Vessel active = FlightGlobals.ActiveVessel;
             if (active == null)
                 InGameAssert.Skip("no active vessel");
+            if (PartParityAirContext.DecideAdmission(BurstArgs(PartParitySweepOp.Run), active, out string padDetail) == null)
+            {
+                // A pad host runs the burst and dust filters (design G.7): they need the pad, the
+                // orbit filters an orbit, so one scene takes one half.
+                ParsekLog.Info(PartParitySweepRunner.Tag, "ingame acceptance: pad host (" + padDetail + "), burst and dust filters only");
+                IEnumerator pad = RunPadHostSteps();
+                try { while (pad.MoveNext()) yield return pad.Current; }
+                finally { PartParitySweepRunner.DisposeNested(pad); }
+                yield break;
+            }
             if (active.situation != Vessel.Situations.ORBITING)
-                InGameAssert.Skip("the state sweep spawns co-orbital and needs an orbiting active vessel (situation=" + active.situation + ")");
+                InGameAssert.Skip("the state sweep spawns co-orbital and needs an orbiting active vessel, or a pad host for the burst and dust filters (situation=" + active.situation + ")");
 
             for (int i = 0; i < StateAcceptanceParts.Length; i++)
             {
@@ -224,6 +234,85 @@ namespace Parsek.InGameTests
                 if (label == FxLabelPrefix + "1")
                     InGameAssert.IsTrue(Value(step, "controls") == TestCommandPartParitySweep.ControlsOk,
                         "fx controls did not behave (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
+            }
+        }
+
+        /// <summary>The label of the burst steps (every burst word over the install, contexts=air).</summary>
+        internal const string BurstLabel = "ingame-burst";
+
+        /// <summary>The label of the dust steps (fx=dust over the install, contexts=ground).</summary>
+        internal const string DustLabel = "ingame-dust";
+
+        /// <summary>How many run steps one pad label may take before the cell gives up: the burst
+        /// run is one wave per case and the dust run four cases per wave, both resumed by label.</summary>
+        internal const int MaxPadHostSteps = 40;
+
+        /// <summary>One burst step's args: every burst word, the air context, the controls.</summary>
+        internal static PartParitySweepArgs BurstArgs(PartParitySweepOp op)
+        {
+            return new PartParitySweepArgs
+            {
+                Label = BurstLabel,
+                Op = op,
+                Filter = TestCommandPartParitySweep.DefaultFilter,
+                Fx = new List<string>(PartParityFxRules.BurstArgWords),
+                Contexts = new List<string> { PartParityStateRules.ContextAir },
+                Controls = true,
+                MaxSeconds = TestCommandPartParitySweep.MaxMaxSeconds,
+            };
+        }
+
+        /// <summary>One dust step's args: the dust word, the ground context, the controls.</summary>
+        internal static PartParitySweepArgs DustArgs(PartParitySweepOp op)
+        {
+            return new PartParitySweepArgs
+            {
+                Label = DustLabel,
+                Op = op,
+                Filter = TestCommandPartParitySweep.DefaultFilter,
+                Fx = new List<string>(PartParityFxRules.DustArgWords),
+                Contexts = new List<string> { PartParityFxRules.ContextGround },
+                Controls = true,
+                MaxSeconds = TestCommandPartParitySweep.MaxMaxSeconds,
+            };
+        }
+
+        /// <summary>The pad half of the acceptance cell (design G.7, the plan's <c>fx=</c> filter,
+        /// no new test): every burst and dust case of the install, resumed step by step under one
+        /// label each until the step reports done. Setup faults are logged, not asserted: a
+        /// potential-0 puff is expected to read <c>burst-not-triggered</c>; read the manifest.</summary>
+        private static IEnumerator RunPadHostSteps()
+        {
+            foreach (bool dust in new[] { false, true })
+            {
+                string label = dust ? DustLabel : BurstLabel;
+                PartParitySweepStepResult reset = null;
+                IEnumerator r = PartParitySweepRunner.RunStep(dust ? DustArgs(PartParitySweepOp.Reset) : BurstArgs(PartParitySweepOp.Reset),
+                    res => reset = res);
+                try { while (r.MoveNext()) yield return r.Current; }
+                finally { PartParitySweepRunner.DisposeNested(r); }
+                InGameAssert.IsTrue(reset != null && reset.Ok, label + " reset failed: " + Describe(reset));
+
+                PartParitySweepStepResult step = null;
+                for (int n = 0; n < MaxPadHostSteps; n++)
+                {
+                    step = null;
+                    IEnumerator run = PartParitySweepRunner.RunStep(dust ? DustArgs(PartParitySweepOp.Run) : BurstArgs(PartParitySweepOp.Run),
+                        x => step = x);
+                    try { while (run.MoveNext()) yield return run.Current; }
+                    finally { PartParitySweepRunner.DisposeNested(run); }
+                    InGameAssert.IsTrue(step != null && step.Ok, label + " run failed: " + Describe(step));
+                    ParsekLog.Info(PartParitySweepRunner.Tag, "ingame " + label + " step " +
+                        (n + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + ": " +
+                        TestCommandPartParitySweep.FormatPayload(step.Payload));
+                    InGameAssert.IsTrue(Value(step, "hostDamaged") != "true", label + " damaged the host: " + Describe(step));
+                    if (Value(step, "done") == "true") break;
+                }
+                string payload = TestCommandPartParitySweep.FormatPayload(step.Payload);
+                InGameAssert.IsTrue(Value(step, "done") == "true", label + " did not finish in " +
+                    MaxPadHostSteps.ToString(System.Globalization.CultureInfo.InvariantCulture) + " steps: " + payload);
+                InGameAssert.IsTrue(Value(step, "controls") == TestCommandPartParitySweep.ControlsOk,
+                    label + " controls did not behave (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
             }
         }
 

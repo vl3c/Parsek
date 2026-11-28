@@ -204,11 +204,12 @@ namespace Parsek.TestCommands
             }
             string refusal = TestCommandPartParitySweep.DecideHostAdmission(args, has, orbiting, landed, distance);
             string situation = has ? active.situation.ToString() : "(none)";
-            detail = TestCommandPartParitySweep.IsAirRun(args)
+            bool padHost = TestCommandPartParitySweep.IsPadHostRun(args);
+            detail = padHost
                 ? PartParityAirPlan.AdmissionDetail(situation, distance)
                 : (has ? "situation=" + situation : "no active vessel");
-            if (TestCommandPartParitySweep.IsAirRun(args))
-                ParsekLog.Info(Tag, $"air admission: host={(has ? active.vesselName : "(none)")} {detail} " +
+            if (padHost)
+                ParsekLog.Info(Tag, $"{(TestCommandPartParitySweep.IsGroundRun(args) ? "ground" : "air")} admission: host={(has ? active.vesselName : "(none)")} {detail} " +
                     $"maxPadDistance={TestCommandPartParitySweep.AirHostMaxPadDistanceM.ToString("0", Ic)}m " +
                     $"result={refusal ?? "admitted"}");
             return refusal;

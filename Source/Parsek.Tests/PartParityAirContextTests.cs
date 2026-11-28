@@ -207,8 +207,8 @@ namespace Parsek.Tests
             Assert.DoesNotContain("TestCommandPartParitySweep.DecideHostAdmission(active != null, orbiting)", runner);
             Assert.DoesNotContain("TestCommandPartParitySweep.DecideHostAdmission(active != null, orbiting)", applier);
             Assert.Contains("TestCommandPartParitySweep.DecideHostAdmission(args, has, orbiting, landed, distance)", air);
-            // The baseline records the run's mode (host.txt mode=air for an air run).
-            Assert.Contains("CaptureHostBaseline(ctx.Host, TestCommandPartParitySweep.IsAirRun(a))", runner);
+            // The baseline records the run's mode (host.txt mode=air for a pad-host run: air or ground).
+            Assert.Contains("CaptureHostBaseline(ctx.Host, TestCommandPartParitySweep.IsPadHostRun(a))", runner);
             Assert.Contains("Air = air,", runner);
         }
 
