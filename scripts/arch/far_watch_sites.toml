@@ -161,7 +161,6 @@ members = [
 "Parsek.TimeJumpManager::NotifyRecorder(Parsek.FlightRecorder,float64,float64)" = { count = 1, codes = ["UNREACHABLE"], audit = "A TimeJumpManager.cs:370" }
 "Parsek.WatchModeController::BuildWatchFocusSummary(Parsek.GhostPlaybackState)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:640" }
 "Parsek.WatchModeController::DescribeWatchEligibilityForLogs(int32)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:684" }
-"Parsek.WatchModeController::DrawWatchModeOverlay()" = { count = 2, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:1091,1095" }
 "Parsek.WatchModeController::EnterWatchMode(int32)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:1703" }
 "Parsek.WatchModeController::IsGhostOnSameBody(int32)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:946" }
 "Parsek.WatchModeController::OnVesselWillDestroy(Vessel)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:3939" }

@@ -1084,20 +1084,21 @@ namespace Parsek
             if (watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count)
                 vesselName = committed[watchedRecordingIndex].VesselName;
 
-            // Compute distance from ghost to active vessel
+            // Distance from the ghost to the player's ship. During a far watch the active vessel
+            // is the camera drone sitting on the ghost, so the ship comes from the far-watch
+            // identity (FarWatchPlayerVessel answers the active vessel when no drone exists);
+            // GetWorldPos3D also places an unloaded ship hundreds of km away.
             string distText = "";
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState watchState;
+            Vessel playerShip = FarWatchPlayerVessel.Resolve();
             if (ghostStates.TryGetValue(watchedRecordingIndex, out watchState)
-                && watchState?.ghost != null && FlightGlobals.ActiveVessel != null)
+                && watchState?.ghost != null && playerShip != null)
             {
                 double dist = Vector3d.Distance(
                     (Vector3d)watchState.ghost.transform.position,
-                    (Vector3d)FlightGlobals.ActiveVessel.transform.position);
-                if (dist < 1000)
-                    distText = dist.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " m";
-                else
-                    distText = (dist / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " km";
+                    playerShip.GetWorldPos3D());
+                distText = FormatWatchDistance(dist);
             }
 
             // The far-watch clause (design-far-watch.md 8.4, ruled): the return time and why warp
@@ -1125,6 +1126,28 @@ namespace Parsek
             GUI.Label(new Rect(x, hintY, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
             if (!string.IsNullOrEmpty(farClause))
                 GUI.Label(new Rect(x, hintY + 18f, boxW, 18f), farClause, watchOverlayHintStyle);
+        }
+
+        /// <summary>
+        /// Short overlay distance in the units stock's map uses: m, km, Mm, Gm, Tm. One decimal
+        /// under 10 of a unit ("4.2 km"), whole numbers from 10 ("290 km", "1234 m" never: 1.2 km).
+        /// </summary>
+        internal static string FormatWatchDistance(double meters)
+        {
+            if (double.IsNaN(meters) || double.IsInfinity(meters) || meters < 0)
+                return "?";
+            string[] units = { "m", "km", "Mm", "Gm", "Tm" };
+            double value = meters;
+            int u = 0;
+            while (u < units.Length - 1 && Math.Round(value, value < 10 ? 1 : 0) >= 1000)
+            {
+                value /= 1000.0;
+                u++;
+            }
+            if (u == 0)
+                return value.ToString("F0", CultureInfo.InvariantCulture) + " m";
+            string format = Math.Round(value, 1) < 10 ? "F1" : "F0";
+            return value.ToString(format, CultureInfo.InvariantCulture) + " " + units[u];
         }
 
         /// <summary>Horizontal room the overlay title leaves at the box edges, in scaled-root pixels.</summary>
@@ -3820,10 +3843,12 @@ namespace Parsek
                 && host.TryResolveUnitMemberPlaybackUTForWatch(
                     recordingIndex, fallbackUT, rec.StartUT, rec.EndUT, out double spanLoopUT))
             {
-                ParsekLog.Verbose("CameraFollow",
+                // Per frame from the watch camera and the far-watch follow: one line per
+                // recording every 5 s.
+                ParsekLog.VerboseRateLimited("CameraFollow", "watch-ut-span-clock-" + recordingIndex,
                     $"Watch UT resolved via Mission span clock: rec #{recordingIndex} rawUT="
                         + fallbackUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                        + " loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture), 5.0);
                 return spanLoopUT;
             }
 

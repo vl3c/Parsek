@@ -54,6 +54,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WatchOverlay_MeasuresTheDistanceFromThePlayerShip()
+        {
+            // During a far watch the active vessel is the drone on the ghost, so the overlay
+            // read 0 m (owner, WL-1 hold 2026-11-28); it reads the player's ship instead.
+            string body = MethodBody(
+                Read("Source", "Parsek", "Controllers", "WatchModeController.cs"),
+                "internal void DrawWatchModeOverlay()");
+            Assert.Contains("FarWatchPlayerVessel.Resolve()", body);
+            Assert.Contains("playerShip.GetWorldPos3D()", body);
+            Assert.DoesNotContain("FlightGlobals.ActiveVessel", body);
+        }
+
+        [Fact]
         public void WatchResolver_TriesTheMissionSpanClockFirst()
         {
             string body = MethodBody(

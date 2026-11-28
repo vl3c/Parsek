@@ -32,6 +32,30 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "Watching: A Very Long Vessel Name Indeed", "[Free]" }, lines);
         }
 
+        [Theory]
+        [InlineData(0.0, "0 m")]
+        [InlineData(999.4, "999 m")]
+        [InlineData(999.6, "1.0 km")]
+        [InlineData(4049.0, "4.0 km")]
+        [InlineData(9960.0, "10 km")]
+        [InlineData(290208.25, "290 km")]
+        [InlineData(999600.0, "1.0 Mm")]
+        [InlineData(12345678.0, "12 Mm")]
+        [InlineData(13599840256.0, "14 Gm")]
+        [InlineData(5.0e15, "5000 Tm")]
+        public void FormatWatchDistance_UsesShortStockUnits(double meters, string expected)
+        {
+            Assert.Equal(expected, WatchModeController.FormatWatchDistance(meters));
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(-1.0)]
+        public void FormatWatchDistance_BadInput_IsAQuestionMark(double meters)
+        {
+            Assert.Equal("?", WatchModeController.FormatWatchDistance(meters));
+        }
+
         [Fact]
         public void NoMeasure_FallsBackToOneLine()
         {
