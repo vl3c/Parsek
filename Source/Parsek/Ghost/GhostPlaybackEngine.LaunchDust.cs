@@ -245,6 +245,9 @@ namespace Parsek
             ParticleSystem ps, Color rgb, float alpha, Vector3 push, ParticleSystem.Particle[] buffer)
         {
             if (!ps.isPlaying) ps.Play(false);
+            // Stock enables each system's emission while it draws; a prefab may ship it disabled.
+            var emission = ps.emission;
+            if (!emission.enabled) emission.enabled = true;
             var main = ps.main;
             main.startColor = new Color(rgb.r, rgb.g, rgb.b, alpha);
             if (buffer == null || push.sqrMagnitude <= 0f) return;
