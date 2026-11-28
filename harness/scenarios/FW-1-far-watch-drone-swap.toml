@@ -113,6 +113,9 @@ required = [
   "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle ",
   # The ship's recording backgrounded at the swap (design 7.1 step 5).
   "\\[BgRecorder\\]",
+  # The swap keeps the ship recording's supply-run proof (design 7.4, V1): its run-manifest
+  # start half survives the hand-over instead of being voided.
+  "\\[Recorder\\] RouteRunManifest kept across far watch: recording=[0-9a-f]{32} ",
   # After the fw1-probe load: the outsider-shape stash, its deferral and the ship's watch.
   "TryRestoreActiveTreeNode: stashed active tree '[^']*' \\(\\d+ recording\\(s\\), activeRecId=<null>\\) into pending-LimboVesselSwitch slot",
   "OnLoad: pending-LimboVesselSwitch tree '[^']*' deferred to OnFlightReady for vessel-switch restore",

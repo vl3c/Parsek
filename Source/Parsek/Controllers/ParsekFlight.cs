@@ -1808,7 +1808,7 @@ namespace Parsek
             farWatch?.OnVesselSwitching(from, to);
         }
 
-        /// <summary>The far-watch entry inputs (design 8.3 pending windows, V1, scene and vessel).</summary>
+        /// <summary>The far-watch entry inputs (design 8.3 pending windows, scene and vessel).</summary>
         internal FarWatchEntryInputs BuildFarWatchEntryInputs(int recordingIndex, bool alreadyActive, bool follow)
         {
             Vessel active = FlightGlobals.ActiveVessel;
@@ -1817,13 +1817,6 @@ namespace Parsek
                 && committed[recordingIndex] != null
                 && engine != null && engine.ghostStates.ContainsKey(recordingIndex);
             bool sameBody = ghostResolvable && watchMode.IsGhostOnSameBody(recordingIndex);
-            bool proving = false;
-            if (activeTree != null && activeTree.ActiveRecordingId != null
-                && activeTree.Recordings.TryGetValue(activeTree.ActiveRecordingId, out Recording activeRec)
-                && activeRec != null)
-            {
-                proving = activeRec.RouteRunManifest != null && !activeRec.RunManifestVoided;
-            }
             return new FarWatchEntryInputs
             {
                 InFlightScene = HighLogic.LoadedScene == GameScenes.FLIGHT,
@@ -1845,11 +1838,25 @@ namespace Parsek
                 TimeJumpPlacementWatched = TimeJumpManager.HasWatchedPlacement,
                 RestoringActiveTree = restoringActiveTree,
                 ReFlyActive = ParsekScenario.Instance != null && ParsekScenario.Instance.ActiveReFlySessionMarker != null,
-                SupplyRunProving = proving,
                 GhostResolvable = ghostResolvable,
                 GhostOnShipBody = sameBody,
                 FollowGhost = follow,
             };
+        }
+
+        /// <summary>
+        /// The ship's structure changed while the drone held focus (design-far-watch.md 7.4):
+        /// the run manifest its background recording kept across the hand-over is voided.
+        /// </summary>
+        internal void VoidShipRunManifestForFarWatch(uint shipPid, int partsAtHandover, int partsNow)
+        {
+            string recId = null;
+            if (activeTree != null)
+                activeTree.BackgroundMap.TryGetValue(shipPid, out recId);
+            ParsekLog.Info("FarWatch", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "ship structure changed during the far watch shipPid={0} parts={1}->{2} rec={3}; voiding its run manifest",
+                shipPid, partsAtHandover, partsNow, recId ?? "(none)"));
+            RouteProofCapture.VoidRunManifestForFarWatchShipChange(activeTree, recId);
         }
 
         /// <summary>HandoverOut: a post-switch watch armed for the ship is disarmed (the hand-back re-arms it).</summary>

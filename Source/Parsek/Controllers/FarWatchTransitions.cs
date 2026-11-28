@@ -81,8 +81,8 @@ namespace Parsek
     }
 
     /// <summary>
-    /// Inputs of the far-watch entry refusal (design 8.3 pending windows plus the V1 ruling
-    /// and the scene / vessel preconditions). Plain values so the decision is pure.
+    /// Inputs of the far-watch entry refusal (design 8.3 pending windows plus the scene /
+    /// vessel preconditions). Plain values so the decision is pure.
     /// </summary>
     internal struct FarWatchEntryInputs
     {
@@ -103,7 +103,6 @@ namespace Parsek
         internal bool TimeJumpPlacementWatched;
         internal bool RestoringActiveTree;
         internal bool ReFlyActive;
-        internal bool SupplyRunProving;
         internal bool GhostResolvable;
         internal bool GhostOnShipBody;
         /// <summary>Follow mode moves the drone with the ghost; hold mode keeps it beside the ship.</summary>
@@ -226,7 +225,7 @@ namespace Parsek
 
         /// <summary>
         /// The far-watch entry refusal: null when entry is allowed, else the first reason in a
-        /// fixed order (scene and vessel first, then the pending windows of 8.3, then V1).
+        /// fixed order (scene and vessel first, then the pending windows of 8.3, then the ghost).
         /// </summary>
         internal static string EvaluateEntryRefusal(FarWatchEntryInputs i)
         {
@@ -247,11 +246,19 @@ namespace Parsek
             if (i.TimeJumpPlacementWatched) return "time-jump-placement-watched";
             if (i.RestoringActiveTree) return "restoring-active-tree";
             if (i.ReFlyActive) return "refly-active";
-            if (i.SupplyRunProving) return "supply-run-proving";
             if (!i.GhostResolvable) return "ghost-not-resolvable";
             // Step 2 moves the drone on the ship's body only; a hold watch never moves it.
             if (i.FollowGhost && !i.GhostOnShipBody) return "ghost-other-body";
             return null;
+        }
+
+        /// <summary>
+        /// The ship's part count moved while the drone held focus (7.4): a dock, undock,
+        /// coupling or part loss. An unknown count (-1) on either side never reads as a change.
+        /// </summary>
+        internal static bool ShipStructureChanged(int partsAtHandover, int partsNow)
+        {
+            return partsAtHandover >= 0 && partsNow >= 0 && partsAtHandover != partsNow;
         }
 
         /// <summary>The section 16.2 transition line (invariant culture; tests read it).</summary>

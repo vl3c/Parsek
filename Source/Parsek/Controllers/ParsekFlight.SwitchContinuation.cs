@@ -166,7 +166,7 @@ namespace Parsek
                 && recorder.RecordingVesselId != newVessel.persistentId)
             {
                 SplitBrancher.EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(active)");
-                recorder.TransitionToBackground();
+                recorder.TransitionToBackground(farWatchHandover: newVesselIsDrone);
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "OnVesselSwitch(active)");

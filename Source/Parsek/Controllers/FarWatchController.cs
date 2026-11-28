@@ -57,6 +57,11 @@ namespace Parsek
         internal const int ShipLostScreenDelayFrames = 2;
         private bool cameraLost;
 
+        // The ship's part count at the hand-over out; a change while the drone is active (a dock,
+        // undock, coupling or part loss) voids the run manifest the hand-over kept (7.4).
+        private int shipPartsAtHandover = -1;
+        private bool shipStructureVoided;
+
         // Hold point (beside the ship, or the last written point).
         private bool surfaceHeld;
         private CelestialBody holdBody;
@@ -193,6 +198,8 @@ namespace Parsek
             destroyingDrone = false;
             switchedOut = false;
             cameraLost = false;
+            shipPartsAtHandover = -1;
+            shipStructureVoided = false;
             framesInState = 0;
             shipLoadedFrames = 0;
             handbackRetried = false;
@@ -292,6 +299,7 @@ namespace Parsek
                 ResolveAbort();
                 return;
             }
+            shipPartsAtHandover = ReadShipPartCount(ship);
             bool ok = ForceSwitch(drone, "drone");
             if (!ok)
             {
@@ -418,7 +426,11 @@ namespace Parsek
             {
                 TickTeardown();
             }
-            else if (drone != null && !destroyingDrone)
+            else
+            {
+                CheckShipStructure();
+            }
+            if (state != FarWatchState.Teardown && drone != null && !destroyingDrone)
             {
                 if (state == FarWatchState.Following && followGhost)
                     TickFollow();
@@ -430,6 +442,34 @@ namespace Parsek
                 FarWatchTransitions.FormatTickSummary(
                     winTicks, winWrites, winSkips, winFloorClamps, winMaxDev, winHoldRenewals),
                 TickSummaryIntervalSeconds);
+        }
+
+        /// <summary>
+        /// While the drone holds focus the ship is packed and nobody flies it, so its part count
+        /// stays as it was at the hand-over out. A change means a dock, undock, coupling or part
+        /// loss reached it: its kept run manifest is voided once (7.4).
+        /// </summary>
+        private void CheckShipStructure()
+        {
+            if (!switchedOut || shipStructureVoided || ship == null)
+                return;
+            int now = ReadShipPartCount(ship);
+            if (!FarWatchTransitions.ShipStructureChanged(shipPartsAtHandover, now))
+                return;
+            shipStructureVoided = true;
+            host.VoidShipRunManifestForFarWatch(ship.persistentId, shipPartsAtHandover, now);
+        }
+
+        /// <summary>The ship's part count: live parts while loaded, the snapshot parts while not.</summary>
+        private static int ReadShipPartCount(Vessel v)
+        {
+            if (v == null)
+                return -1;
+            if (v.loaded)
+                return v.parts != null ? v.parts.Count : -1;
+            return v.protoVessel != null && v.protoVessel.protoPartSnapshots != null
+                ? v.protoVessel.protoPartSnapshots.Count
+                : -1;
         }
 
         private void TickTeardown()

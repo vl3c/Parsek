@@ -1527,7 +1527,7 @@ namespace Parsek
             // 3. Tree decisions — early return BEFORE CaptureAtStop
             if (decision == VesselSwitchDecision.TransitionToBackground)
             {
-                TransitionToBackground();
+                TransitionToBackground(farWatchHandover: CameraDroneIdentity.IsDrone(v.persistentId, v.id));
                 TransitionToBackgroundPending = true;
                 ParsekLog.Verbose("Recorder", $"Tree: transition to background " +
                     $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
@@ -2051,8 +2051,10 @@ namespace Parsek
         /// Transitions the current recording to background mode (tree vessel switch).
         /// Captures an orbit segment for the background phase. IsRecording stays true
         /// but the Harmony patch is disconnected so OnPhysicsFrame won't fire.
+        /// <paramref name="farWatchHandover"/> is true when the focus went to the far-watch
+        /// camera drone: the run manifest may then be kept (design-far-watch.md 7.4).
         /// </summary>
-        public void TransitionToBackground()
+        public void TransitionToBackground(bool farWatchHandover = false)
         {
             if (!IsRecording) return;
 
@@ -2126,10 +2128,16 @@ namespace Parsek
             // can never complete its END half trustworthily - VOID the manifest
             // on the tree recording (Warn-logged inside) and drop the pending
             // working copy. The analysis presence gate degrades the tree to
-            // legacy behavior for this lineage.
-            RouteProofCapture.VoidRunManifestForBackgroundTransition(
+            // legacy behavior for this lineage. The far-watch hand-over keeps a
+            // write-once START half when no harvest window is held (the decision
+            // states why); the hand-back's promotion adopts it from the tree
+            // recording, so the pending copy is dropped either way.
+            RouteProofCapture.ApplyRunManifestOnBackgroundTransition(
                 ActiveTree,
-                ActiveTree?.ActiveRecordingId);
+                ActiveTree?.ActiveRecordingId,
+                farWatchHandover && CameraDroneIdentity.ShipPid == RecordingVesselId,
+                recorderHarvestWindows.Count,
+                openHarvestWindow != null);
             pendingRouteRunManifest = null;
             // Harvest windows die with the backgrounded leg: they only land on
             // a recording through an active-stop capture, which a BG transit

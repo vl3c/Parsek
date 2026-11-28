@@ -319,8 +319,18 @@ namespace Parsek.Tests
             Check(x => { x.TimeJumpPlacementArmed = true; return x; }, "time-jump-placement-armed");
             Check(x => { x.TimeJumpPlacementWatched = true; return x; }, "time-jump-placement-watched");
             Check(x => { x.RestoringActiveTree = true; return x; }, "restoring-active-tree");
-            Check(x => { x.SupplyRunProving = true; return x; }, "supply-run-proving");
             Check(x => { x.GhostResolvable = false; return x; }, "ghost-not-resolvable");
+        }
+
+        [Theory]
+        [InlineData(5, 5, false)]
+        [InlineData(5, 6, true)]
+        [InlineData(5, 3, true)]
+        [InlineData(-1, 4, false)]
+        [InlineData(4, -1, false)]
+        public void ShipStructureChanged_OnlyOnAKnownCountChange(int before, int now, bool changed)
+        {
+            Assert.Equal(changed, FarWatchTransitions.ShipStructureChanged(before, now));
         }
 
         [Fact]

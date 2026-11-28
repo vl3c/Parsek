@@ -2453,6 +2453,115 @@ namespace Parsek
             RecordingTree tree,
             string activeRecordingId)
         {
+            return VoidRunManifest(tree, activeRecordingId, "background-transition");
+        }
+
+        /// <summary>
+        /// Whether a background transition keeps the leg's run manifest instead of voiding it
+        /// (design-far-watch.md 7.4). Only the far-watch hand-over to the camera drone keeps it,
+        /// and only when the leg's START half is already on the tree recording (write-once, so
+        /// the hand-back adopts it and never re-baselines) and the recorder holds no harvest
+        /// window (closed or open): those windows live on the recorder and die with the
+        /// backgrounded leg, so a kept manifest would read the witnessed harvest as an
+        /// unaccounted gain. During the watch the ship is packed under the unpack hold and
+        /// the player flies the drone, so the ship gains nothing a later active stop could
+        /// misread as harvested: any gain is unwitnessed and the gain check rejects it, and a
+        /// dock, undock or part loss of the ship voids through
+        /// <see cref="VoidRunManifestForFarWatchShipChange"/>. Every other transition voids
+        /// exactly as before. Pure; the reason names the branch for the log.
+        /// </summary>
+        internal static bool ShouldKeepRunManifestOnBackgroundTransition(
+            bool farWatchHandover,
+            Recording treeRecording,
+            int harvestWindowCount,
+            bool harvestWindowOpen,
+            out string reason)
+        {
+            if (!farWatchHandover)
+            {
+                reason = "not-far-watch";
+                return false;
+            }
+            if (treeRecording == null)
+            {
+                reason = "no-tree-recording";
+                return false;
+            }
+            if (treeRecording.RunManifestVoided)
+            {
+                reason = "manifest-voided";
+                return false;
+            }
+            if (treeRecording.RouteRunManifest == null || !treeRecording.RouteRunManifest.HasStartHalf)
+            {
+                reason = "no-start-half";
+                return false;
+            }
+            if (harvestWindowCount > 0 || harvestWindowOpen)
+            {
+                reason = "harvest-windows";
+                return false;
+            }
+            reason = "far-watch-handover";
+            return true;
+        }
+
+        /// <summary>
+        /// The run-manifest step of <c>FlightRecorder.TransitionToBackground</c>: keeps the
+        /// manifest across a far-watch hand-over when
+        /// <see cref="ShouldKeepRunManifestOnBackgroundTransition"/> allows it (one Info line),
+        /// else voids it as every background transition does. Returns true when kept.
+        /// </summary>
+        internal static bool ApplyRunManifestOnBackgroundTransition(
+            RecordingTree tree,
+            string activeRecordingId,
+            bool farWatchHandover,
+            int harvestWindowCount,
+            bool harvestWindowOpen)
+        {
+            Recording treeRec = null;
+            if (tree != null && tree.Recordings != null && !string.IsNullOrEmpty(activeRecordingId))
+                tree.Recordings.TryGetValue(activeRecordingId, out treeRec);
+
+            if (ShouldKeepRunManifestOnBackgroundTransition(
+                    farWatchHandover, treeRec, harvestWindowCount, harvestWindowOpen, out string reason))
+            {
+                ParsekLog.Info("Recorder",
+                    $"RouteRunManifest kept across far watch: recording={activeRecordingId} " +
+                    $"parts={treeRec.RouteRunManifest.TransportPartPersistentIds?.Count ?? 0} " +
+                    $"res={treeRec.RouteRunManifest.StartTransportResources?.Count ?? 0} " +
+                    $"endCaptured={(treeRec.RouteRunManifest.EndCaptured ? "1" : "0")}");
+                return true;
+            }
+            if (farWatchHandover)
+            {
+                ParsekLog.Info("Recorder",
+                    $"RouteRunManifest not kept across far watch: recording={activeRecordingId ?? "(none)"} " +
+                    $"reason={reason} windows={harvestWindowCount} " +
+                    $"open={(harvestWindowOpen ? "1" : "0")}");
+            }
+            VoidRunManifestForBackgroundTransition(tree, activeRecordingId);
+            return false;
+        }
+
+        /// <summary>
+        /// A far watch saw the ship's structure change (a dock, undock, coupling or part loss
+        /// while the drone was active): the kept manifest of the ship's background recording
+        /// is voided as a background transition would have voided it. Returns true when a
+        /// manifest was cleared.
+        /// </summary>
+        internal static bool VoidRunManifestForFarWatchShipChange(
+            RecordingTree tree,
+            string shipRecordingId)
+        {
+            return VoidRunManifest(tree, shipRecordingId, "far-watch-ship-changed");
+        }
+
+        private static bool VoidRunManifest(
+            RecordingTree tree,
+            string activeRecordingId,
+            string reason)
+        {
             if (tree == null || string.IsNullOrEmpty(activeRecordingId)
                 || tree.Recordings == null
                 || !tree.Recordings.TryGetValue(activeRecordingId, out Recording treeRec)
@@ -2471,7 +2580,7 @@ namespace Parsek
                     treeRec.MarkFilesDirty();
                     ParsekLog.Verbose("Recorder",
                         $"RouteRunManifest void tombstone set: recording={activeRecordingId} " +
-                        $"reason=background-transition (no manifest captured yet)");
+                        $"reason={reason} (no manifest captured yet)");
                 }
                 return false;
             }
@@ -2479,7 +2588,7 @@ namespace Parsek
             treeRec.RouteRunManifest = null;
             treeRec.MarkFilesDirty();
             ParsekLog.Warn("Recorder",
-                $"RouteRunManifest voided: recording={activeRecordingId} reason=background-transition");
+                $"RouteRunManifest voided: recording={activeRecordingId} reason={reason}");
             return true;
         }
 
