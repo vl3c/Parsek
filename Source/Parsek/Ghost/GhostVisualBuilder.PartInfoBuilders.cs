@@ -1395,6 +1395,9 @@ namespace Parsek
             var ghostJettisonTransforms = new List<Transform>();
             var resolvedJettisonNames = new List<string>();
             List<Transform> spawnHidden = null;
+            List<Transform> carried = null;
+            List<string> carriedNames = null;
+            int carrierAttachIndex = -1;
             List<ConfigNode> snapshotJettisons = SnapshotModulesNamed(partNode, "ModuleJettison");
             int jettisonOrdinal = 0;
             for (int moduleIndex = 0; moduleIndex < prefab.Modules.Count; moduleIndex++)
@@ -1433,6 +1436,15 @@ namespace Parsek
                 // never showed (todo GHOST-SHROUD-EMPTY-BOTTOM-NODE).
                 JettisonSpawnHideReason hideReason = ResolveJettisonSpawnHideReason(
                     jettison.ignoreNodes, jettison.bottomNodeName, partNode, snapJettison);
+                // Stock's flight-start carry rule: a shroud the bottom-node part carries leaves
+                // with that part (todo GHOST-SHROUD-KEPT-AFTER-STAGING). The first carried
+                // module names the carrier; parts with two bottom-node shrouds share one node.
+                int moduleCarrierIndex = ResolveStockShroudCarrierIndex(
+                    jettison.isFairing, jettison.decoupleEnabled, hideReason,
+                    jettison.bottomNodeName, partNode);
+                if (moduleCarrierIndex >= 0 && carrierAttachIndex >= 0
+                    && moduleCarrierIndex != carrierAttachIndex)
+                    moduleCarrierIndex = -1;
                 int moduleTransforms = 0;
                 for (int nameIndex = 0; nameIndex < jettisonNames.Count; nameIndex++)
                 {
@@ -1513,6 +1525,16 @@ namespace Parsek
                         if (spawnHidden == null) spawnHidden = new List<Transform>();
                         if (!spawnHidden.Contains(ghostJettison)) spawnHidden.Add(ghostJettison);
                     }
+                    if (moduleCarrierIndex >= 0)
+                    {
+                        if (carried == null) { carried = new List<Transform>(); carriedNames = new List<string>(); }
+                        if (!carried.Contains(ghostJettison))
+                        {
+                            carried.Add(ghostJettison);
+                            carriedNames.Add(jettisonName);
+                        }
+                        carrierAttachIndex = moduleCarrierIndex;
+                    }
                     if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
                     ghostJettisonTransforms.Add(ghostJettison);
                     resolvedJettisonNames.Add(jettisonName);
@@ -1526,7 +1548,9 @@ namespace Parsek
                         (hideReason != JettisonSpawnHideReason.None ? "starts hidden" : "starts shown") +
                         $" (reason={hideReason} bottomNode='{jettison.bottomNodeName}' " +
                         $"bottomEmpty={IsAttachNodeEmptyInSnapshot(partNode, jettison.bottomNodeName)} " +
-                        $"ignoreNodes={jettison.ignoreNodes} transforms={moduleTransforms})", 60.0);
+                        $"ignoreNodes={jettison.ignoreNodes} isFairing={jettison.isFairing} " +
+                        $"decoupleEnabled={jettison.decoupleEnabled} carrierIndex={moduleCarrierIndex} " +
+                        $"transforms={moduleTransforms})", 60.0);
                 }
             }
 
@@ -1536,7 +1560,11 @@ namespace Parsek
                 {
                     partPersistentId = persistentId,
                     jettisonTransforms = ghostJettisonTransforms,
-                    spawnHiddenTransforms = spawnHidden
+                    spawnHiddenTransforms = spawnHidden,
+                    partName = partName,
+                    carrierAttachIndex = carried != null ? carrierAttachIndex : -1,
+                    carriedTransforms = carried,
+                    carriedShroudNames = carriedNames != null ? string.Join(",", carriedNames.ToArray()) : null
                 };
             }
 

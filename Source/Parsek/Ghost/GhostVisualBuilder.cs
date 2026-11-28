@@ -211,7 +211,10 @@ namespace Parsek
                         if (parachuteInfo != null)
                             build.parachuteInfos.Add(parachuteInfo);
                         if (jettisonInfo != null)
+                        {
+                            ResolveJettisonCarrierPid(jettisonInfo, build.partNodes);
                             build.jettisonInfos.Add(jettisonInfo);
+                        }
                         if (partEngineInfos != null)
                             build.engineInfos.AddRange(partEngineInfos);
                         if (deployableInfo != null)
@@ -1376,7 +1379,13 @@ namespace Parsek
             // restarts from the same look.
             bool wholePartJettisoned = ShouldHideJettisonTransformsAtBuild(jettisonInfo, partNode);
             if (wholePartJettisoned)
+            {
                 jettisonInfo.spawnHiddenTransforms = new List<Transform>(jettisonInfo.jettisonTransforms);
+                // A shroud the part starts without is never carried off.
+                jettisonInfo.carrierAttachIndex = -1;
+                jettisonInfo.carriedTransforms = null;
+                jettisonInfo.carriedShroudNames = null;
+            }
             int jettisonHidden = GhostPlaybackLogic.ApplyJettisonSpawnBaseline(jettisonInfo);
             if (jettisonHidden > 0)
             {

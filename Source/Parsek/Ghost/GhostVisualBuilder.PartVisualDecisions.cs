@@ -388,6 +388,17 @@ namespace Parsek
         /// </summary>
         internal static bool IsAttachNodeEmptyInSnapshot(ConfigNode partNode, string nodeId)
         {
+            int idx;
+            return TryReadAttachNodeIndexInSnapshot(partNode, nodeId, out idx) && idx < 0;
+        }
+
+        /// <summary>
+        /// Pure: the snapshot PART index on the "attN = nodeId, index" row (negative when the
+        /// node is empty). False when the part has no such row or its index does not parse.
+        /// </summary>
+        internal static bool TryReadAttachNodeIndexInSnapshot(ConfigNode partNode, string nodeId, out int index)
+        {
+            index = -1;
             if (partNode == null || string.IsNullOrEmpty(nodeId)) return false;
             string[] rows = partNode.GetValues("attN");
             if (rows == null) return false;
@@ -397,13 +408,73 @@ namespace Parsek
                 string[] fields = rows[i].Split(',');
                 if (fields.Length < 2) continue;
                 if (!string.Equals(fields[0].Trim(), nodeId, System.StringComparison.Ordinal)) continue;
-                int idx;
-                if (!int.TryParse(fields[1].Trim(), System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture, out idx))
-                    return false;
-                return idx < 0;
+                return int.TryParse(fields[1].Trim(), System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out index);
             }
             return false;
+        }
+
+        /// <summary>
+        /// Pure transcription of the carry branch of stock ModuleJettison.SetupJettisonState in
+        /// flight (KSP 1.12.5, decompiled): when the shroud is not jettisoned, isFairing is set,
+        /// the bottom node exists and holds a part, stock destroys the shroud's colliders and,
+        /// with decoupleEnabled, re-parents the shroud transform under that part, so the shroud
+        /// leaves with it on a decouple (Jettison() of an isFairing shroud only sets the flag).
+        /// ignoreNodes is not read on this branch. Returns the snapshot PART index of the
+        /// carrier, or -1 when stock keeps the shroud on its own part. A shroud the part starts
+        /// with hidden (<paramref name="hideReason"/> not None) is never carried.
+        /// </summary>
+        internal static int ResolveStockShroudCarrierIndex(
+            bool isFairing, bool decoupleEnabled, JettisonSpawnHideReason hideReason,
+            string bottomNodeName, ConfigNode partNode)
+        {
+            if (!isFairing || !decoupleEnabled) return -1;
+            if (hideReason != JettisonSpawnHideReason.None) return -1;
+            int index;
+            if (!TryReadAttachNodeIndexInSnapshot(partNode, bottomNodeName, out index)) return -1;
+            return index >= 0 ? index : -1;
+        }
+
+        /// <summary>
+        /// Pure: the persistentId of the snapshot PART at <paramref name="index"/>, or 0 when the
+        /// index is out of range or the PART has no readable persistentId.
+        /// </summary>
+        internal static uint ResolveSnapshotPartPidAtIndex(ConfigNode[] partNodes, int index)
+        {
+            if (partNodes == null || index < 0 || index >= partNodes.Length || partNodes[index] == null)
+                return 0;
+            uint pid;
+            string raw = partNodes[index].GetValue("persistentId");
+            return raw != null && uint.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out pid) ? pid : 0;
+        }
+
+        /// <summary>
+        /// Stamps <see cref="JettisonGhostInfo.carrierPartPersistentId"/> from the snapshot PART
+        /// list once the whole list is known, and logs the inference. Pure apart from the log:
+        /// a carrier index with no readable pid, or naming the part itself, drops the carry.
+        /// </summary>
+        internal static void ResolveJettisonCarrierPid(JettisonGhostInfo info, ConfigNode[] partNodes)
+        {
+            if (info == null || info.carrierAttachIndex < 0) return;
+            uint carrierPid = ResolveSnapshotPartPidAtIndex(partNodes, info.carrierAttachIndex);
+            if (carrierPid == 0 || carrierPid == info.partPersistentId)
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"    Part '{info.partName}' pid={info.partPersistentId}: shroud '{info.carriedShroudNames}' " +
+                    $"bottom-node index {info.carrierAttachIndex} names no other snapshot part " +
+                    $"(carrierPid={carrierPid}); no carry-off");
+                info.carrierAttachIndex = -1;
+                info.carrierPartPersistentId = 0;
+                info.carriedTransforms = null;
+                info.carriedShroudNames = null;
+                return;
+            }
+            info.carrierPartPersistentId = carrierPid;
+            ParsekLog.Verbose("GhostVisual",
+                $"    Part '{info.partName}' pid={info.partPersistentId}: shroud '{info.carriedShroudNames}' " +
+                $"rides bottom-node part pid={carrierPid} (index {info.carrierAttachIndex}); hidden when " +
+                "that part leaves the ghost (stock re-parents an isFairing + decoupleEnabled shroud)");
         }
 
         private static bool ReadSnapshotBool(ConfigNode module, string key)

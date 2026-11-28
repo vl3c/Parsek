@@ -652,9 +652,106 @@ namespace Parsek
                 HideGhostPart(ghost, evt.partPersistentId);
                 RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
             }
+            if (HasAnyCarriedShroud(state))
+                ApplyCarriedOffShrouds(state, evt, CollectSubtreePids(evt.partPersistentId, tree), logicalPartIds);
             visibilityChanged = true;
             needsReentryMeshRebuild = true;
             return GhostPartEventOutcome.Applied;
+        }
+
+        /// <summary>What a part leaving the ghost does to one carried shroud (pure).</summary>
+        internal enum CarriedShroudDecision
+        {
+            NoCarrier,
+            CarrierStays,
+            LeftTogether,
+            OwnerGone,
+            AlreadyHidden,
+            Hide
+        }
+
+        /// <summary>
+        /// Pure: stock re-parents an isFairing + decoupleEnabled shroud onto the part on the
+        /// engine's bottom node at flight start, so the shroud leaves when that part leaves. A
+        /// shroud hides when its carrier is among <paramref name="removedPids"/>, its owner part
+        /// is not and is still on the ghost, and nothing hid it already (a ShroudJettisoned event
+        /// or an earlier carry-off).
+        /// </summary>
+        internal static CarriedShroudDecision ClassifyCarriedShroudOnPartsLeaving(
+            uint ownerPid, uint carrierPid, bool alreadyHidden,
+            List<uint> removedPids, HashSet<uint> logicalPartIds)
+        {
+            if (carrierPid == 0) return CarriedShroudDecision.NoCarrier;
+            if (removedPids == null || !removedPids.Contains(carrierPid))
+                return CarriedShroudDecision.CarrierStays;
+            if (removedPids.Contains(ownerPid)) return CarriedShroudDecision.LeftTogether;
+            if (logicalPartIds != null && !logicalPartIds.Contains(ownerPid))
+                return CarriedShroudDecision.OwnerGone;
+            if (alreadyHidden) return CarriedShroudDecision.AlreadyHidden;
+            return CarriedShroudDecision.Hide;
+        }
+
+        internal static bool HasAnyCarriedShroud(GhostPlaybackState state)
+        {
+            if (state == null || state.jettisonInfos == null) return false;
+            foreach (var kvp in state.jettisonInfos)
+                if (kvp.Value != null && kvp.Value.carrierPartPersistentId != 0) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Hides every carried shroud whose carrier is in <paramref name="removedPids"/> (todo
+        /// GHOST-SHROUD-KEPT-AFTER-STAGING). Runs once per Decoupled / Destroyed event, never
+        /// per frame. Recordings made before the recorder learned the carry-off carry no
+        /// ShroudJettisoned event for it; a recording that has one hid the shroud already and
+        /// is skipped. Returns how many shrouds it hid. The Unity write sits in a NoInlining
+        /// helper reached only for a non-empty transform list, so xUnit drives the rest.
+        /// </summary>
+        internal static int ApplyCarriedOffShrouds(
+            GhostPlaybackState state, PartEvent evt, List<uint> removedPids, HashSet<uint> logicalPartIds)
+        {
+            if (state == null || state.jettisonInfos == null) return 0;
+            int hidden = 0;
+            foreach (var kvp in state.jettisonInfos)
+            {
+                JettisonGhostInfo info = kvp.Value;
+                if (info == null || info.carrierPartPersistentId == 0) continue;
+                CarriedShroudDecision decision = ClassifyCarriedShroudOnPartsLeaving(
+                    info.partPersistentId, info.carrierPartPersistentId, info.shroudHidden,
+                    removedPids, logicalPartIds);
+                if (decision == CarriedShroudDecision.CarrierStays) continue;
+                if (decision != CarriedShroudDecision.Hide)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"Carried shroud kept as is: part '{info.partName}' pid={info.partPersistentId} " +
+                        $"shroud '{info.carriedShroudNames}' carrier pid={info.carrierPartPersistentId} " +
+                        $"{evt.eventType} pid={evt.partPersistentId}: {decision} " +
+                        $"(vessel='{state.vesselName ?? "unknown"}')");
+                    continue;
+                }
+                if (info.carriedTransforms != null && info.carriedTransforms.Count > 0)
+                    HideCarriedShroudTransforms(info);
+                info.shroudHidden = true;
+                hidden++;
+                ParsekLog.Verbose("GhostVisual",
+                    $"Carried shroud hidden: part '{info.partName}' pid={info.partPersistentId} " +
+                    $"shroud '{info.carriedShroudNames}' left with carrier pid={info.carrierPartPersistentId} " +
+                    $"on {evt.eventType} pid={evt.partPersistentId} at ut={evt.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    "(stock re-parents an isFairing + decoupleEnabled shroud onto its bottom-node part) " +
+                    $"(vessel='{state.vesselName ?? "unknown"}')");
+            }
+            return hidden;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void HideCarriedShroudTransforms(JettisonGhostInfo info)
+        {
+            for (int i = 0; i < info.carriedTransforms.Count; i++)
+            {
+                Transform t = info.carriedTransforms[i];
+                if (t == null) continue;
+                t.gameObject.SetActive(false);
+            }
         }
 
         /// <summary>
@@ -746,6 +843,8 @@ namespace Parsek
             ApplyHeatState(state, evt, HeatLevel.Cold);
             HideGhostPart(ghost, evt.partPersistentId);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
+            if (HasAnyCarriedShroud(state))
+                ApplyCarriedOffShrouds(state, evt, new List<uint> { evt.partPersistentId }, logicalPartIds);
             visibilityChanged = true;
             needsReentryMeshRebuild = true;
             return GhostPartEventOutcome.Applied;

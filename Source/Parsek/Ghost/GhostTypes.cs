@@ -12,6 +12,21 @@ namespace Parsek
         // from the snapshot. The build hides them, and a loop cycle restarts with them hidden, so
         // playback events layer over the same look the real part had. Null or empty when none.
         public List<Transform> spawnHiddenTransforms;
+        public string partName;
+        // Stock ModuleJettison.SetupJettisonState (flight) re-parents an isFairing +
+        // decoupleEnabled shroud onto the part on its bottom node, so the shroud leaves with that
+        // part. carrierAttachIndex is that part's index in the snapshot PART list (build-time,
+        // -1 for none); carrierPartPersistentId its pid (0 for none); carriedTransforms the
+        // shroud transforms it carries. Playback hides them when the carrier leaves the ghost
+        // (a Decoupled or Destroyed event), which covers recordings that carry no
+        // ShroudJettisoned event for it.
+        public int carrierAttachIndex = -1;
+        public uint carrierPartPersistentId;
+        public List<Transform> carriedTransforms;
+        public string carriedShroudNames;
+        // True while the panels are hidden by a ShroudJettisoned event or the carry-off; cleared
+        // when the loop reset re-attaches them.
+        public bool shroudHidden;
     }
 
     internal class ParachuteGhostInfo
@@ -1109,6 +1124,7 @@ namespace Parsek
         public string variantName;
 
         /// <summary><c>snapshot</c>, <c>runtime</c>, <c>base</c>, <c>first-fallback</c>,
+        /// <c>snapshot-unknown-first</c>,
         /// <c>base-implicit</c>, or null when no variant was resolved.</summary>
         public string variantResolutionPath;
 

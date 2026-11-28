@@ -731,6 +731,7 @@ namespace Parsek
                 jettisonTransform.gameObject.SetActive(!jettisoned);
                 applied = true;
             }
+            if (applied) jetInfo.shroudHidden = jettisoned;
 
             return applied
                 ? GhostPartEventOutcome.Applied

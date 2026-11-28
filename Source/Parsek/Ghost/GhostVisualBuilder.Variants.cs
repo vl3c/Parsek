@@ -33,7 +33,8 @@ namespace Parsek
             bool variantFromSnapshot = false;
 
             // Prefer explicit variant saved on the part snapshot when present.
-            requestedVariantName = ResolveVariantNameFromSnapshot(partNode);
+            bool snapshotNameFromModule;
+            requestedVariantName = ResolveVariantNameFromSnapshot(partNode, out snapshotNameFromModule);
             variantFromSnapshot = !string.IsNullOrEmpty(requestedVariantName);
 
             // Fall back to runtime module fields if exposed.
@@ -50,8 +51,32 @@ namespace Parsek
                 }
             }
 
+            bool matched = MatchVariantNode(variantModuleConfig, requestedVariantName, variantFromSnapshot,
+                snapshotNameFromModule, out selectedVariantNode, out selectedVariantName, out resolutionPath);
+            if (matched && resolutionPath != null && resolutionPath.StartsWith("snapshot-unknown", System.StringComparison.Ordinal))
+            {
+                string partName = prefab.partInfo.name;
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant-unknown-{partName}-{requestedVariantName}",
+                    $"    Part '{partName}': snapshot variant '{requestedVariantName}' " +
+                    $"({(snapshotNameFromModule ? "module selectedVariant" : "PART moduleVariantName")}) " +
+                    $"names no VARIANT of this install; using '{selectedVariantName}' via {resolutionPath} " +
+                    "(stock flight load: the baseVariant index, or index 0 for an unknown selectedVariant)", 60.0);
+            }
+            return matched;
+        }
+
+        /// <summary>
+        /// Name-only overload: the requested name is treated as a PART-level name, the common
+        /// stock save shape for a variant at index 0.
+        /// </summary>
+        internal static bool MatchVariantNode(
+            ConfigNode variantModuleConfig,
+            string requestedVariantName, bool variantFromSnapshot,
+            out ConfigNode selectedVariantNode, out string selectedVariantName,
+            out string resolutionPath)
+        {
             return MatchVariantNode(variantModuleConfig, requestedVariantName, variantFromSnapshot,
-                out selectedVariantNode, out selectedVariantName, out resolutionPath);
+                false, out selectedVariantNode, out selectedVariantName, out resolutionPath);
         }
 
         /// <summary>
@@ -60,7 +85,7 @@ namespace Parsek
         /// </summary>
         internal static bool MatchVariantNode(
             ConfigNode variantModuleConfig,
-            string requestedVariantName, bool variantFromSnapshot,
+            string requestedVariantName, bool variantFromSnapshot, bool snapshotNameFromModule,
             out ConfigNode selectedVariantNode, out string selectedVariantName,
             out string resolutionPath)
         {
@@ -102,6 +127,23 @@ namespace Parsek
             // display name for the MODULE-level default appearance). The prefab already
             // has the correct base textures/geometry — return false so callers skip
             // variant rule application rather than falling through to variantNodes[0].
+            // A snapshot name no VARIANT carries (a save from an install whose variant set
+            // differs, e.g. ReStock's 'TwoBell' Poodle on stock) loads the way stock loads it
+            // (ModulePartVariants, KSP 1.12.5 decompiled): in flight PART-level
+            // moduleVariantName is not read, an unknown module selectedVariant makes
+            // GetVariantIndex return 0, and variantIndex is a private unserialized field, so a
+            // part instantiated from the prefab starts at index 0 (OnSave also omits
+            // selectedVariant at index 0, which round-trips only if a load defaults to 0).
+            // With a baseVariant key the list holds only the VARIANT nodes, so index 0 is the
+            // first of them; without one, index 0 is the implicit base.
+            if (selectedVariantNode == null && variantFromSnapshot && !string.IsNullOrEmpty(baseLower))
+            {
+                selectedVariantNode = variantNodes[0];
+                resolutionPath = "snapshot-unknown-first";
+                selectedVariantName = FirstNonEmptyConfigValue(selectedVariantNode, "name") ?? "<unnamed>";
+                return true;
+            }
+
             if (selectedVariantNode == null && variantFromSnapshot)
             {
                 selectedVariantName = requestedVariantName;
@@ -143,6 +185,19 @@ namespace Parsek
         /// </summary>
         internal static string ResolveVariantNameFromSnapshot(ConfigNode partNode)
         {
+            bool fromModule;
+            return ResolveVariantNameFromSnapshot(partNode, out fromModule);
+        }
+
+        /// <summary>
+        /// As <see cref="ResolveVariantNameFromSnapshot(ConfigNode)"/>;
+        /// <paramref name="fromModule"/> is true when the name came from the MODULE node (stock
+        /// writes selectedVariant there only for a variant above index 0) rather than the
+        /// PART-level moduleVariantName.
+        /// </summary>
+        internal static string ResolveVariantNameFromSnapshot(ConfigNode partNode, out bool fromModule)
+        {
+            fromModule = false;
             if (partNode == null)
                 return null;
 
@@ -153,6 +208,7 @@ namespace Parsek
                 "selectedVariant",
                 "variantName",
                 "moduleVariantName");
+            fromModule = !string.IsNullOrEmpty(name);
 
             // Also check PART-level moduleVariantName — KSP writes the selected variant
             // here rather than inside the ModulePartVariants MODULE node.
