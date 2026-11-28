@@ -21,7 +21,7 @@ tier = "operator"
 # available, the 13-part Kerbal X Probe ORBITING Kerbin at ~100 km) boots into FLIGHT, turns
 # every auto-record setting off (no case vessel may be recorded), turns verbose logging on
 # (the per-case lines are verbose-tier), warps on rails to UT 1900 (FGV-1's sunlit window),
-# clears the label directory (`op=reset motion=all`), runs THREE time-boxed `op=run
+# clears the label directory (`op=reset motion=all`), runs TWO time-boxed `op=run
 # motion=all` steps and quits without saving. A `motion=` run names no `states=`, no `fx=`
 # and no `contexts=` and plans ONLY the motion cases of its families (H.1), so nothing of
 # PP-2 / PP-4 / PP-8 is repeated; `frames=` is not passed (8 frames per motion time, the
@@ -32,17 +32,19 @@ tier = "operator"
 # Communotron 16 with every polled event moved 1.0 s later), the last two each judged
 # RELATIVE to its own normal route `<controlId>--normal`.
 #
-# CASES (design H.1, counted by M1 over `motion-parts-modded-compat.txt`): 101 orbit motion
-# cases (22 deployable, 9 gear, 2 ladder, 4 animation-group, 9 cargo-bay, 17
-# animate-generic, 1 airbrake, 13 robotics servos, 24 control surfaces in the radial
-# context) plus the 6 controls: 107. The reading-only light fades are left out (`motion=all`
-# never holds `light`). Each step logs the exact counts on its `motion cases:` Info line.
+# CASES (design H.1): 100 orbit motion cases live (22 deployable, 9 gear, 2 ladder, 3
+# animation-group, 9 cargo-bay, 17 animate-generic, 1 airbrake, 13 robotics servos, 24
+# control surfaces in the radial context) plus the 6 controls: 106. M1 counted 101 over
+# `motion-parts-modded-compat.txt`; #2862 made the orbital scanner (an animation group with
+# no deploy clip) a planned `no-animation` exclusion. The reading-only light fades are left
+# out (`motion=all` never holds `light`). Each step logs the exact counts on its `motion
+# cases:` Info line.
 #
-# STEP SIZING (design H.4). Planned at 5 s per case (P6's measured 3.3 s per case at waves of
-# 4, plus the second motion time each window waits, with P6's lesson that the first
-# estimate ran 50 % low): about 565 s of sweep. Three `op=run maxSeconds=480` steps hold
-# 1440 s; a step with nothing left answers `done=true` at once. The step count is re-set
-# from the reading flight's `wall=` (design D.8).
+# STEP SIZING (design H.4, D.8). Planned at 5 s per case: about 565 s of sweep in three
+# steps. Measured on the full flight `2026-11-28_0007`: the first step hit its 480 s box at
+# 421.7 s with 95 of the 100 cases done, the second finished in 22.1 s, the third answered
+# `done=true` in 0.4 s; 535 s wall. So two `op=run maxSeconds=480` steps: about 444 s of
+# sweep needs both, and they hold 960 s, above D.8's 50 % (about 665 s).
 #
 # GATES. (1) The partParity verifier row, from the start: the run's control set (recomputed
 # from the manifest's settings) behaved, every motion control re-judged from its sidecars
@@ -77,15 +79,22 @@ tier = "operator"
 # nothing left to sweep answers `done=true` at once. (3) The time box is the measurement
 # itself. (4)/(5) no mission burns, no coasts. (6) `[retry] policy = "none"`: a retry's
 # `op=reset` would clear the files a reading run exists to keep. (7) Recording count pinned
-# at 0. (8)/(9) tier operator by purpose (a report-only reading lane), flight_efficiency.py
-# after the first green flight.
+# at 0. (8) tier operator by purpose (a report-only reading lane; 535 s wall is far under the
+# longhaul p50 line). (9) The wall is the sweep itself (444 s of 535 s) plus the boot, the
+# load and the warp: no 1x idle and no coast; `flight_efficiency.py` over the archived run is
+# owed on the flight PC.
 #
-# NEVER FLOWN (authored 2026-11-27, branch `claude/project-thread-sif2cl-m6`). Its first
-# flight is a `limit=20` reading flight on a local copy of this spec (20 cases + the 6
-# controls), then the full flight; the live engine is work row M3 of H.7.
-description = "AUTHORED 2026-11-27, NEVER FLOWN (part ghost parity P7 M6): PP-14 on modded-compat: every transforming modded-compat part (ReStock, ReStock+, Waterfall, B9PartSwitch) pressed for real in LKO and photographed LIVE through its motion beside its Parsek event-route ghost posed at each real frame's UT and progress, over three PartParitySweep motion=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; motion verdicts report-only)."
+# LIVE-PROVEN (authored 2026-11-27, branch `claude/project-thread-sif2cl-m6`). Reading flights
+# on a `limit=20` local copy (20 cases + the 6 controls): `2026-11-27_2202` INVALID (instrument
+# gaps, fixed by #2862), `_2302` INVALID (the real-vs-real end-frame rule, fixed by #2864),
+# `_2353` PASS. Full flight `2026-11-28_0007` on main 05c456742 (reference DLL): PASS, all 6
+# controls ok, 100 cases (17 pass / 30 warn / 52 fail / 1 error), 106 of 106 sidecars
+# complete, 0 recompute mismatches, 535 s wall. The one error is `surfacescanner`
+# (state-timeout, an instrument gap: todo PARTPARITY-P7-SURFACESCANNER-NO-PROGRESS); the
+# motion fails are report-only findings (todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26).
+description = "LIVE-PROVEN 2026-11-28 (part ghost parity P7 M6, `2026-11-28_0007`): PP-14 on modded-compat: every transforming modded-compat part (ReStock, ReStock+, Waterfall, B9PartSwitch) pressed for real in LKO and photographed LIVE through its motion beside its Parsek event-route ghost posed at each real frame's UT and progress, over two PartParitySweep motion=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; motion verdicts report-only)."
 instanceProfile = "modded-compat"
-tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-15"]
+tags = ["part-parity", "ghost-visual", "modded-compat", "flown", "PP-15"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"
@@ -107,8 +116,8 @@ steps = [
   # Clear the label directory so no earlier run's files mix in. The reset carries the run's
   # own kind (the applier admits every step by its run kind: an orbit run, an orbiting host).
   { cmd = "PartParitySweep", args = { label = "pp15", op = "reset", motion = "all" }, expect = "OK", budget = 120 },
-  # Three time-boxed motion steps over every orbit motion case; each resumes.
-  { cmd = "PartParitySweep", args = { label = "pp15", op = "run", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  # Two time-boxed motion steps over every orbit motion case; the second resumes (measured:
+  # the first ends at its box with 95 of 100 cases, the second finishes in about 22 s).
   { cmd = "PartParitySweep", args = { label = "pp15", op = "run", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "PartParitySweep", args = { label = "pp15", op = "run", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -143,9 +152,9 @@ forbidden = [
 ]
 
 [runtime]
-# The step budgets: LoadGame 300, the warp 120, the reset 120, three 540 s run steps
-# (2160 s; PP-4's 2400).
-budgetSeconds = 2400
+# The step budgets: LoadGame 300, the warp 120, the reset 120, two 540 s run steps (1620 s;
+# PP-3's 1800). Measured wall 535 s (`2026-11-28_0007`).
+budgetSeconds = 1800
 
 [retry]
 policy = "none"

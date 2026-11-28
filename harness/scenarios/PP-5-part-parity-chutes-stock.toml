@@ -44,8 +44,8 @@ tier = "operator"
 # in air mode, at full and at 30 %), the Whiplash and the wet Panther on the vessel's main
 # throttle (design E.2, 4 cases, never flown here) and the four air FX controls.
 #
-# THE THIRD LABEL, AIR MOTION (phase P7, Appendix H.4, work row M7 of H.7; added 2026-11-27,
-# NEVER FLOWN): the chutes' motion between their stowed and their semi / full canopy,
+# THE THIRD LABEL, AIR MOTION (phase P7, Appendix H.4, work row M7 of H.7; added 2026-11-27;
+# the label flown alone, the whole lane not yet flown with it): the chutes' motion between their stowed and their semi / full canopy,
 # photographed LIVE on target frames from the press beside the event-route ghost posed at
 # each real frame's UT and progress (the orbit motion lanes PP-14 / PP-15 fly every other
 # transforming part). About 70 s of sweep does not earn its own boot and LoadGame, so after
@@ -54,11 +54,12 @@ tier = "operator"
 # `ctl-ghost-absent` and `ctl-motion-real-vs-real-air`, two Mk16 pressed together, the
 # canopy-scale curves only). The 10 chute motion cases (5 semi, 5 full; design H.1); its step
 # logs the exact counts on its `motion cases: motion=all contexts=air` line. It runs LAST, so
-# a label never flown cannot stop the two flown ones (an unmet step ends the drive). Its
+# the newest label cannot stop the two older ones (an unmet step ends the drive). Its
 # motion verdicts are report-only like the rest of the lane; the H.6 item 3 snap (the ghost
 # writes the canopy pose at once) is the expected finding (todo
-# GHOST-DEPLOY-MOTION-TIMING-2026-11-26). Its first flight is a `limit=20` reading flight
-# of this label on a local copy of the spec.
+# GHOST-DEPLOY-MOTION-TIMING-2026-11-26). Flown 2026-11-27 as a motion-label-only local copy
+# of this spec (`2026-11-27_2306`: PASS, all controls ok, all 10 fail on the expected snap (motion-snap on 5 of 5 semi, motion-stepped on 4 of 5 full), 85 s wall); the committed
+# lane has not flown whole with the label.
 #
 # STEP SIZING (design D.8). About 1 minute of chute sweep: waves of up to five chutes, each about
 # 20 s (spawn, settle, semi, full, the canopy window, capture), plus the controls. One
@@ -98,7 +99,7 @@ tier = "operator"
 # spec): 10 cases, every chute reached semi and full for real with its events recorded and was
 # captured inside the canopy window, controls ok, complete, recompute 0 mismatches; the 10
 # report-only fails are todo GHOST-CHUTE-CANOPY-AIM.
-description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1713`): every stock parachute opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp5fx (LIVE-PROVEN `2026-11-23_1718`: part ghost parity P8 F7), photographs the 18 held air-breathing engine cases (14 before 2026-11-24) over two contexts=air fx=all steps. A third label, pp5mo (AUTHORED 2026-11-27, NEVER FLOWN: part ghost parity P7 M7), photographs the 10 chute motion cases live over one contexts=air motion=all step."
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1713`): every stock parachute opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp5fx (LIVE-PROVEN `2026-11-23_1718`: part ghost parity P8 F7), photographs the 18 held air-breathing engine cases (14 before 2026-11-24) over two contexts=air fx=all steps. A third label, pp5mo (AUTHORED 2026-11-27: part ghost parity P7 M7; flown alone on a motion-label-only local copy `2026-11-27_2306` PASS, the whole lane not yet flown with it), photographs the 10 chute motion cases live over one contexts=air motion=all step."
 instanceProfile = "stock-minimal"
 tags = ["part-parity", "ghost-visual", "flown", "PP-5"]
 
@@ -128,7 +129,7 @@ steps = [
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "reset", contexts = "air", fx = "all" }, expect = "OK", budget = 120 },
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
-  # The third label: the chutes' motion (Appendix H.4), last so a label never flown cannot
+  # The third label: the chutes' motion (Appendix H.4), last so the newest label cannot
   # stop the two flown ones. The reset carries the run's own kind, as above.
   { cmd = "PartParitySweep", args = { label = "pp5mo", op = "reset", contexts = "air", motion = "all" }, expect = "OK", budget = 120 },
   { cmd = "PartParitySweep", args = { label = "pp5mo", op = "run", contexts = "air", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
