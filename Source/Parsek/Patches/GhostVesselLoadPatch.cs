@@ -11,7 +11,9 @@ namespace Parsek.Patches
     {
         Unavailable,
         NoActiveGhost,
+        /// <summary>No body reading of the ghost, or a ghost at another body with no far watch in this scene.</summary>
         DifferentBody,
+        /// <summary>Past the near watch and the far watch refuses (the ship's safety, design-far-watch.md 12.2).</summary>
         OutOfRange,
         Start,
         Stop,
@@ -20,11 +22,19 @@ namespace Parsek.Patches
 
     internal static class GhostMapWatchHelper
     {
+        /// <summary>
+        /// The map ghost menu's Watch action (design-far-watch.md 12.2, step 4).
+        /// <paramref name="bodyWatchable"/> is the body half every Watch button reads
+        /// (<c>ParsekFlight.IsGhostOnWatchableBody</c>: the ship's body, or any body while a far
+        /// watch can run); <paramref name="inRange"/> is the range and safety half
+        /// (<c>ParsekFlight.IsGhostWatchableAtRange</c>: today's near watch, or a far start the
+        /// ship's safety allows). A ghost at another body or past 300 km is a plain Watch.
+        /// </summary>
         internal static GhostMapWatchAction ResolveWatchAction(
             int recordingIndex,
             int watchedRecordingIndex,
             bool hasActiveGhost,
-            bool sameBody,
+            bool bodyWatchable,
             bool inRange,
             bool toggleIfAlreadyWatching)
         {
@@ -36,7 +46,7 @@ namespace Parsek.Patches
                     : GhostMapWatchAction.Refresh;
             if (!hasActiveGhost)
                 return GhostMapWatchAction.NoActiveGhost;
-            if (!sameBody)
+            if (!bodyWatchable)
                 return GhostMapWatchAction.DifferentBody;
             if (!inRange)
                 return GhostMapWatchAction.OutOfRange;
@@ -51,15 +61,51 @@ namespace Parsek.Patches
                     return "Stop Watching";
                 case GhostMapWatchAction.Refresh:
                     return "Refresh Watch";
-                case GhostMapWatchAction.OutOfRange:
-                    return "Watch (Too Far)";
                 case GhostMapWatchAction.NoActiveGhost:
                     return "Watch (Inactive)";
-                case GhostMapWatchAction.DifferentBody:
-                    return "Watch (Other SOI)";
                 default:
+                    // Step 4: the old Too Far and Other SOI labels are a plain Watch,
+                    // greyed with its reason as the hover when the far watch refuses.
                     return "Watch";
             }
+        }
+
+        internal const string OtherBodyReasonText = "The ghost is in another SOI";
+        internal const string TooFarReasonText = "The ghost is out of watch range";
+
+        /// <summary>
+        /// The greyed Watch entry's reason (its stock tooltip text, D1): the far watch's own
+        /// refusal (the ship's safety) when it gave one, else the body or range line. Empty for
+        /// an enabled action.
+        /// </summary>
+        internal static string GetWatchButtonReason(GhostMapWatchAction action, string farRefusal)
+        {
+            switch (action)
+            {
+                case GhostMapWatchAction.OutOfRange:
+                    return string.IsNullOrEmpty(farRefusal) ? TooFarReasonText : farRefusal;
+                case GhostMapWatchAction.DifferentBody:
+                    return OtherBodyReasonText;
+                default:
+                    return string.Empty;
+            }
+        }
+
+        /// <summary>The live inputs of <see cref="ResolveWatchAction"/> for one ghost.</summary>
+        internal static GhostMapWatchAction ResolveLiveWatchAction(ParsekFlight flight, int recIndex,
+            bool toggleIfAlreadyWatching, out string farRefusal)
+        {
+            farRefusal = null;
+            bool hasActiveGhost = flight != null && recIndex >= 0 && flight.HasActiveGhost(recIndex);
+            bool bodyWatchable = flight != null && recIndex >= 0 && flight.IsGhostOnWatchableBody(recIndex);
+            bool inRange = flight != null && recIndex >= 0 && flight.IsGhostWatchableAtRange(recIndex, out farRefusal);
+            return ResolveWatchAction(
+                recIndex,
+                flight != null ? flight.WatchedRecordingIndex : -1,
+                hasActiveGhost,
+                bodyWatchable,
+                inRange,
+                toggleIfAlreadyWatching);
         }
 
         internal static bool IsWatchActionEnabled(GhostMapWatchAction action)
@@ -107,16 +153,8 @@ namespace Parsek.Patches
                 return;
             }
 
-            bool hasActiveGhost = recIndex >= 0 && flight.HasActiveGhost(recIndex);
-            bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
-            bool inRange = recIndex >= 0 && flight.IsGhostWithinVisualRange(recIndex);
-            GhostMapWatchAction action = ResolveWatchAction(
-                recIndex,
-                flight.WatchedRecordingIndex,
-                hasActiveGhost,
-                sameBody,
-                inRange,
-                toggleIfAlreadyWatching);
+            string farRefusal;
+            GhostMapWatchAction action = ResolveLiveWatchAction(flight, recIndex, toggleIfAlreadyWatching, out farRefusal);
 
             switch (action)
             {
@@ -146,11 +184,11 @@ namespace Parsek.Patches
 
                 case GhostMapWatchAction.OutOfRange:
                     ScreenMessages.PostScreenMessage(
-                        $"<b>{vesselName}</b> — ghost is out of watch range.",
+                        $"<b>{vesselName}</b> — {GetWatchButtonReason(action, farRefusal)}.",
                         5f, ScreenMessageStyle.UPPER_CENTER);
                     ParsekLog.Info("GhostMap",
-                        $"Ghost '{vesselName}' watch refused via {source} — out of range " +
-                        $"(recIndex={recIndex}) {flight.DescribeWatchEligibilityForLogs(recIndex)}");
+                        $"Ghost '{vesselName}' watch refused via {source} — out of range or far watch refused " +
+                        $"reason={farRefusal ?? "(none)"} (recIndex={recIndex}) {flight.DescribeWatchEligibilityForLogs(recIndex)}");
                     return;
 
                 case GhostMapWatchAction.Stop:
@@ -171,6 +209,15 @@ namespace Parsek.Patches
 
             string beforeFocus = flight.DescribeWatchFocusForLogs();
             flight.EnterWatchMode(recIndex);
+            if (flight.WatchedRecordingIndex != recIndex && flight.IsFarWatchStartingFor(recIndex))
+            {
+                // A far start (design-far-watch.md 12.2): the drone is built and moved to the
+                // ghost first, and watch mode is entered after its first write; the map camera
+                // redirect (12.1) then puts the map camera on the watched ghost.
+                ParsekLog.Info("GhostMap",
+                    $"Ghost '{vesselName}' far watch starting via {source} (recIndex={recIndex} state={flight.FarWatch.State})");
+                return;
+            }
             if (flight.WatchedRecordingIndex != recIndex)
             {
                 ParsekLog.Warn("GhostMap",
@@ -265,20 +312,16 @@ namespace Parsek.Patches
             Vessel v = __instance.vessel;
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
             string vesselName = v.vesselName ?? "Ghost";
+            string currentWatchReason = string.Empty;
             System.Func<GhostMapWatchAction> resolveCurrentWatchAction = () =>
             {
-                var currentFlight = ParsekFlight.Instance;
-                bool hasActiveGhost = currentFlight != null && recIndex >= 0 && currentFlight.HasActiveGhost(recIndex);
-                bool sameBody = currentFlight != null && recIndex >= 0 && currentFlight.IsGhostOnSameBody(recIndex);
-                bool inRange = currentFlight != null && recIndex >= 0 && currentFlight.IsGhostWithinVisualRange(recIndex);
-                return GhostMapWatchHelper.ResolveWatchAction(
-                    recIndex,
-                    currentFlight != null ? currentFlight.WatchedRecordingIndex : -1,
-                    hasActiveGhost,
-                    sameBody,
-                    inRange,
-                    toggleIfAlreadyWatching: true);
+                string farRefusal;
+                GhostMapWatchAction a = GhostMapWatchHelper.ResolveLiveWatchAction(
+                    ParsekFlight.Instance, recIndex, toggleIfAlreadyWatching: true, out farRefusal);
+                currentWatchReason = GhostMapWatchHelper.GetWatchButtonReason(a, farRefusal);
+                return a;
             };
+            DialogGUIButton watchButton = null;
 
             // Dismiss any existing ghost menu before opening a new one
             DismissCurrentMenu();
@@ -303,9 +346,14 @@ namespace Parsek.Patches
                     currentGhostMenu = null;
                     GhostMapPresence.SetGhostMapNavigationTarget(v, recIndex, "icon click");
                 }, dismissOnSelect: true),
-                new DialogGUIButton(() =>
+                watchButton = new DialogGUIButton(() =>
                 {
-                    return GhostMapWatchHelper.GetWatchButtonLabel(resolveCurrentWatchAction());
+                    string label = GhostMapWatchHelper.GetWatchButtonLabel(resolveCurrentWatchAction());
+                    // The greyed entry's reason as its stock tooltip (D1), refreshed with the
+                    // label: DialogGUIBase.Update copies tooltipText to the tooltip each frame.
+                    if (watchButton != null)
+                        watchButton.tooltipText = currentWatchReason;
+                    return label;
                 }, () =>
                 {
                     currentGhostMenu = null;

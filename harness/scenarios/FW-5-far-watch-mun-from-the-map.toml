@@ -1,0 +1,129 @@
+schema = 1
+id = "FW-5-far-watch-mun-from-the-map"
+# =====================================================================================
+# FAR WATCH STEP 4: THE MAP GHOST MENU'S WATCH ON A GHOST IN ANOTHER SOI STARTS A FOLLOW
+# WATCH, AND THE DRONE CROSSES INTO THE MUN SOI WITH THE GHOST.
+#
+# AUTHORED 2026-11-28 (branch `far-watch-step4`, design `docs/dev/design-far-watch.md`
+# 6.3 / 12.2 / 16.2 / 17.4). NEVER FLOWN (tag `pending-flight`): every token below is read
+# from the code, none from a flight.
+#
+# HOST AND GEOMETRY: TP-1's / V6M's, verbatim. `mun-orbit-recorded`, the Kerbal X parked
+# in Mun orbit (the ship: in an orbit clear of any atmosphere, so the ship-safety check
+# allows a watch), tree d18969d6121444c1a30e4a55ae87a442 looped. Cycle 1 relaunches at
+# UT 280176.95 (MEASURED by V6M: `startloopplayback initiated: relaunchUt=`), and the
+# ghost enters the Mun SOI at about UT 296548 (TP-1's measured arrival jump 296690 lands
+# "~142 s inside the Mun SOI"). At UT 296370 the ghost is on the Kerbin side of that
+# seam, about 178 s before it, so the ghost is in another SOI than the ship: the map menu
+# showed "Watch (Other SOI)" (disabled) before step 4.
+#
+# WHAT IT PROVES:
+#   1. The map ghost menu's Watch entry (`FarWatch op=start via=map`, which presses the
+#      entry through `GhostMapWatchHelper.HandleWatchRequest` on the ghost's map vessel)
+#      reads plain `Watch`, enabled, with no reason, on a ghost in another SOI, and starts
+#      the far watch (12.2): the map entry line, the ship-safety verdict, Following.
+#   2. The drone follows across bodies (6.3 step 2): its first write moves it from the
+#      ship's body to the ghost's (`drone body Mun -> Kerbin`), and at the seam it crosses
+#      back with the ghost (`drone body Kerbin -> Mun`), the follow carrying the velocity
+#      across the frame change (`ghost crossed into another SOI from=Kerbin to=Mun`).
+#   3. The frame is right after the active drone's hop: the stale rotating-frame flags are
+#      cleared (`cross-body frame cleared=`) and stock's reference-frame check names the
+#      Mun as the dominant body (`cross-body frame after: ... to=Mun ... dominant=Mun`).
+#   4. Stock never moves the drone between bodies by itself (GhostOrbitDominantBodyPatch
+#      refuses its dominant-body check while the drone exists, so every hop is the mover's
+#      `drone body` line) and Parsek's SOI handler never reads the drone as a recorded
+#      vessel: zero `onVesselSOIChanged fired for the drone`.
+#   5. Once in the Mun's SOI the follow names the recording's body: `follow body=Mun
+#      recordingBody=Mun match=True` (the hop lines themselves may sample the recording's
+#      body a tick either side of its own SOI change, so they are not pinned on it).
+#
+# NOT COVERED (owed elsewhere): the ghost leaving the Mun again (the loop's cycle 1 ends
+# in Mun orbit); the hand-back at the Mun (the ghost parks far from the ship's orbit
+# phase, so it is not expected; a `ghost came near the ship` line would not red the lane).
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 reuse: TP-1's prefix and V6M's measured relaunch, no new flight.
+#   2 no idle waits: one explicit-UT TimeJump, one explicit-UT WarpToUT across the seam.
+#   3 minimal dwells: one status read after the warp.
+#   4/5 not applicable (no burn, no coast mission).
+#   6 fail fast: retry "none"; a refused map entry answers at once (`map-entry-refused:`).
+#   7 tight windows: recordings count is TP-1's measured 9.
+#   8 tier: operator until measured.
+#   9 flight_efficiency.py owed after the first green flight. The WarpToUT runs under the
+#     ghost's warp limit (a ghost in high space, so high rates are expected).
+# =====================================================================================
+tier = "operator"
+description = "Far watch step 4 on TP-1's host mun-orbit-recorded: with the Kerbal X in Mun orbit and the looped transfer ghost still in Kerbin's SOI, the map ghost menu's Watch reads plain Watch (enabled) and starts a follow watch; the drone hops Mun -> Kerbin to the ghost and back Kerbin -> Mun at the seam with the frame cleared and the Mun dominant, and stock never moves the drone itself. NEVER FLOWN (tag pending-flight)."
+instanceProfile = "stock-minimal"
+tags = ["FW-5", "far-watch", "loop-playback", "map-view", "cross-soi", "watch-mode", "mun", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "EnterMapView",                                                    expect = "OK", budget = 60 },
+  { cmd = "MissionConfig", args = { tree = "d18969d6121444c1a30e4a55ae87a442", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "d18969d6121444c1a30e4a55ae87a442" }, expect = "OK", budget = 300 },
+  # Cycle 1, about 178 s before the ghost's Mun SOI entry: the ghost is in Kerbin's SOI.
+  { cmd = "TimeJump", args = { ut = "296370" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FarWatch", args = { op = "start", tree = "d18969d6121444c1a30e4a55ae87a442", via = "map" }, expect = "OK", budget = 120 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  # Across the seam to TP-1's arrival epoch, ~142 s inside the Mun SOI.
+  { cmd = "WarpToUT", args = { ut = "296690" },                              expect = "OK", budget = 540 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  { cmd = "FarWatch", args = { op = "stop" },                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["mun", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required = [
+  "startloopplayback initiated:",
+  "farwatch map entry index=[0-9]+ action=\\S+ label=Watch enabled=True reason=\\(none\\)",
+  "far watch starting via seam map entry",
+  "\\[FarWatchSafety\\] verdict=Allowed reason=None ",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
+  "farwatch start complete ",
+  "\\[CameraDrone\\] drone body Mun -> Kerbin recordingBody=\\S+ match=\\S+ pid=[0-9]+",
+  "\\[FarWatch\\] ghost crossed into another SOI from=Kerbin to=Mun rec=#[0-9]+ recordingBody=\\S+ shipBody=Mun",
+  "\\[CameraDrone\\] cross-body frame cleared=\\S+ target=Mun",
+  "\\[CameraDrone\\] drone body Kerbin -> Mun recordingBody=\\S+ match=\\S+ pid=[0-9]+",
+  "\\[FarWatch\\] follow body=Mun recordingBody=Mun match=True rec=#[0-9]+",
+  "\\[CameraDrone\\] cross-body frame after: from=Kerbin fromInverseRotation=False to=Mun toInverseRotation=\\S+ dominant=Mun ",
+  "farwatch stop complete ",
+]
+forbidden = [
+  "far-watch-active",
+  "farwatch rejected reason=",
+  "onVesselSOIChanged fired for the drone",
+  "follow watch lost its watch-mode target",
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

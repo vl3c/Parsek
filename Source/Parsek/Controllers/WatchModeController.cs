@@ -1012,8 +1012,49 @@ namespace Parsek
                 hasState = hasState,
                 activeBodyName = activeBodyName,
                 onSameBody = decision.OnSameBody,
+                decision = decision,
             };
             return decision.OnSameBody;
+        }
+
+        /// <summary>
+        /// Whether the ghost at index is at the body named <paramref name="bodyName"/> (the far
+        /// watch's ship body, design-far-watch.md 8.4: while the drone is active the active
+        /// vessel's body is the drone's, not the ship's). The same evidence as
+        /// <see cref="IsGhostOnSameBody"/> (one resolution per ghost per frame), compared against
+        /// another body by the pure <see cref="ResolveWatchBodyDecisionAgainst"/>.
+        /// </summary>
+        internal bool IsGhostAtBody(int index, string bodyName)
+        {
+            return ResolveWatchBodyDecisionAgainst(ReadWatchBodyDecision(index), bodyName).OnSameBody;
+        }
+
+        /// <summary>
+        /// The ghost's body name by the same evidence as the same-body term, or null when the
+        /// ghost has no state or no reading (design-far-watch.md 6.3 step 2: the far watch
+        /// follows a ghost at any body, so the Watch affordances need its body, not a match).
+        /// </summary>
+        internal string ResolveGhostBodyNameForWatch(int index)
+        {
+            WatchBodyDecision d = ReadWatchBodyDecision(index);
+            return d.Evidence == WatchBodyEvidence.NoState || string.IsNullOrEmpty(d.GhostBodyName)
+                ? null
+                : d.GhostBodyName;
+        }
+
+        /// <summary>The body half of a Watch affordance for one ghost (design-far-watch.md 12.2, step 4).</summary>
+        internal WatchBodyAffordance ResolveWatchBodyAffordanceForIndex(int index, bool farWatchAvailable)
+        {
+            return ResolveWatchBodyAffordance(ReadWatchBodyDecision(index), farWatchAvailable);
+        }
+
+        private WatchBodyDecision ReadWatchBodyDecision(int index)
+        {
+            IsGhostOnSameBody(index);
+            SameBodyTermMemo memo;
+            return sameBodyTermMemoByIndex.TryGetValue(index, out memo)
+                ? memo.decision
+                : new WatchBodyDecision { Evidence = WatchBodyEvidence.NoState };
         }
 
         private struct SameBodyTermMemo
@@ -1022,6 +1063,7 @@ namespace Parsek
             internal bool hasState;
             internal string activeBodyName;
             internal bool onSameBody;
+            internal WatchBodyDecision decision;
         }
 
         private readonly Dictionary<int, SameBodyTermMemo> sameBodyTermMemoByIndex =
@@ -1583,16 +1625,20 @@ namespace Parsek
         /// If watching a different recording, switches to the new one (preserves camera state).
         /// </summary>
         // Set only for the duration of EnterWatchModeForFarWatch: the far watch moves the drone
-        // (the active vessel) to the ghost, so the 300 km entry guard does not apply.
+        // (the active vessel) to the ghost, so the 300 km entry guard and the loop-phase reset
+        // do not apply (the drone already sits at the ghost's current phase).
         private bool farWatchEntryBypass;
 
         /// <summary>
         /// Watch entry for the far watch (design-far-watch.md 12.2): today's entry with the 300 km
-        /// distance guard skipped. Every other check (same body, ghost state) still applies.
+        /// distance guard skipped and no loop-phase reset (the drone was written at the ghost's
+        /// current phase, so a reset to the loop start would leave it far from the ghost). The
+        /// same-body and ghost-state checks still apply; the drone is at the ghost's body by the
+        /// time this runs (6.3 step 2), so the body check reads the drone's body.
         /// </summary>
         internal void EnterWatchModeForFarWatch(int index)
         {
-            ParsekLog.Info("CameraFollow", "EnterWatchMode for the far watch: distance guard skipped for ghost #"
+            ParsekLog.Info("CameraFollow", "EnterWatchMode for the far watch: distance guard and loop-phase reset skipped for ghost #"
                 + index.ToString(CultureInfo.InvariantCulture));
             farWatchEntryBypass = true;
             try
@@ -1965,13 +2011,15 @@ namespace Parsek
                 shouldLoopPlayback: shouldLoopPlayback,
                 usesOverlapLooping: usesOverlapLooping,
                 currentPhaseOnSameBody: currentPhaseOnSameBody,
-                currentPhaseWithinEntryRange: currentPhaseWithinEntryRange);
+                currentPhaseWithinEntryRange: currentPhaseWithinEntryRange,
+                farWatchEntry: farWatchEntryBypass);
             ParsekLog.Info("CameraFollow",
                 $"Watch loop-phase decision: rec=#{index} id={rec.RecordingId ?? "null"} "
                 + $"reset={(resetLoopPhaseForWatch ? "T" : "F")} "
                 + $"zone={currentState.currentZone} loops={(shouldLoopPlayback ? "T" : "F")} "
                 + $"overlap={(usesOverlapLooping ? "T" : "F")} "
                 + $"phaseSameBody={(currentPhaseOnSameBody ? "T" : "F")} "
+                + $"farWatch={(farWatchEntryBypass ? "T" : "F")} "
                 + $"phaseDist={FormatWatchDistanceForLogs(currentPhaseDistanceMeters)}");
             if (resetLoopPhaseForWatch)
             {

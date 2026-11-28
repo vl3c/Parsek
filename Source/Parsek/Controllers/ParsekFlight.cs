@@ -1816,7 +1816,6 @@ namespace Parsek
             bool ghostResolvable = recordingIndex >= 0 && recordingIndex < committed.Count
                 && committed[recordingIndex] != null
                 && engine != null && engine.ghostStates.ContainsKey(recordingIndex);
-            bool sameBody = ghostResolvable && watchMode.IsGhostOnSameBody(recordingIndex);
             return new FarWatchEntryInputs
             {
                 InFlightScene = HighLogic.LoadedScene == GameScenes.FLIGHT,
@@ -1839,7 +1838,6 @@ namespace Parsek
                 RestoringActiveTree = restoringActiveTree,
                 ReFlyActive = ParsekScenario.Instance != null && ParsekScenario.Instance.ActiveReFlySessionMarker != null,
                 GhostResolvable = ghostResolvable,
-                GhostOnShipBody = sameBody,
                 FollowGhost = follow,
             };
         }
@@ -2670,11 +2668,39 @@ namespace Parsek
         internal bool IsGhostWatchableAtRange(int index, out string farRefusal)
         {
             farRefusal = null;
-            if ((farWatch == null || !farWatch.IsRunning) && watchMode.IsGhostWithinVisualRange(index))
+            if ((farWatch == null || !farWatch.IsRunning)
+                && watchMode.IsGhostOnSameBody(index) && watchMode.IsGhostWithinVisualRange(index))
                 return true;
             return CanFarWatch(index, out farRefusal);
         }
         internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);
+
+        /// <summary>
+        /// The far watch's ship-body term (design-far-watch.md 8.4): the ghost at the player ship's
+        /// body. While a far watch runs the active vessel is the drone at the followed ghost's
+        /// body, so the ship's own body is compared; otherwise the ship is active and this is the
+        /// same-body term.
+        /// </summary>
+        internal bool IsGhostOnShipBody(int index)
+        {
+            Vessel ship = farWatch != null && farWatch.IsRunning ? farWatch.Ship : null;
+            if (ship == null)
+                return watchMode.IsGhostOnSameBody(index);
+            return watchMode.IsGhostAtBody(index, ship.mainBody != null ? ship.mainBody.name : null);
+        }
+
+        /// <summary>
+        /// The body half of every Watch affordance (design-far-watch.md 12.2, step 4): the ghost
+        /// on the active vessel's body, or at any other known body when a far watch can run in
+        /// this scene (FLIGHT). The range and safety half stays <see cref="IsGhostWatchableAtRange"/>.
+        /// </summary>
+        internal bool IsGhostOnWatchableBody(int index)
+        {
+            bool farWatchAvailable = farWatch != null && HighLogic.LoadedScene == GameScenes.FLIGHT;
+            WatchModeController.WatchBodyAffordance a = watchMode.ResolveWatchBodyAffordanceForIndex(index, farWatchAvailable);
+            return a == WatchModeController.WatchBodyAffordance.SameBody
+                || a == WatchModeController.WatchBodyAffordance.OtherBodyFarWatch;
+        }
         internal bool IsGhostBodyReadingCurrent(int index) => watchMode.IsGhostBodyReadingCurrent(index);
         /// <summary>
         /// The W / Watch entry every button calls (design-far-watch.md 12.2): the one W decision
@@ -2729,7 +2755,7 @@ namespace Parsek
                 recordingId = committed[index].RecordingId;
             bool resolvable = inList && engine != null && engine.ghostStates.ContainsKey(index);
             bool watched = inList && watchMode.WatchedRecordingIndex == index;
-            bool sameBody = resolvable && watchMode.IsGhostOnSameBody(index);
+            bool sameBody = resolvable && IsGhostOnShipBody(index);
             double dist = resolvable ? GhostDistanceToShipForFarWatch(index) : double.NaN;
             return farWatch.DecideWatchRequest(index, resolvable, watched, sameBody, dist,
                 forButton ? "watch-button" : "watch-request", forButton, out hover);
@@ -2785,6 +2811,13 @@ namespace Parsek
 
         internal FarWatchController FarWatch => farWatch;
 
+        /// <summary>A far watch was just started for <paramref name="index"/> and has not entered watch mode yet (12.2).</summary>
+        internal bool IsFarWatchStartingFor(int index)
+        {
+            return farWatch != null && farWatch.IsRunning && farWatch.GhostIndex == index
+                && watchMode.WatchedRecordingIndex != index;
+        }
+
         /// <summary>
         /// The far-watch clause of the watch overlay (design-far-watch.md 8.4): the return time
         /// and why warp is held, or null when no far watch runs.
@@ -2793,8 +2826,10 @@ namespace Parsek
         {
             if (farWatch == null || !farWatch.IsRunning)
                 return null;
+            // The warp reason names the body under the watched ghost (any body, step 4).
             Vessel ship = farWatch.Ship;
-            string body = ship != null && ship.mainBody != null ? ship.mainBody.bodyName : null;
+            string body = farWatch.WatchedGhostBodyName
+                ?? (ship != null && ship.mainBody != null ? ship.mainBody.bodyName : null);
             return FarWatchDecisions.BuildOverlayClause(Planetarium.GetUniversalTime(), farWatch.ReturnUT,
                 farWatch.WarpLimitCause, body);
         }

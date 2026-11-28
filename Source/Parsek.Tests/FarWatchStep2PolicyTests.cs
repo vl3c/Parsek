@@ -308,19 +308,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveTarget_LowestInScopeLiveGhost_OnShipBodyWhenFollowing()
+        public void ResolveTarget_LowestInScopeLiveGhost_AnyBody()
         {
             var c = new List<TestCommandFarWatch.GhostCandidate>
             {
-                new TestCommandFarWatch.GhostCandidate { Index = 0, InScope = false, HasActiveGhost = true, OnShipBody = true },
-                new TestCommandFarWatch.GhostCandidate { Index = 1, InScope = true, HasActiveGhost = false, OnShipBody = true },
-                new TestCommandFarWatch.GhostCandidate { Index = 2, InScope = true, HasActiveGhost = true, OnShipBody = false },
-                new TestCommandFarWatch.GhostCandidate { Index = 3, InScope = true, HasActiveGhost = true, OnShipBody = true },
+                new TestCommandFarWatch.GhostCandidate { Index = 0, InScope = false, HasActiveGhost = true },
+                new TestCommandFarWatch.GhostCandidate { Index = 1, InScope = true, HasActiveGhost = false },
+                new TestCommandFarWatch.GhostCandidate { Index = 2, InScope = true, HasActiveGhost = true },
+                new TestCommandFarWatch.GhostCandidate { Index = 3, InScope = true, HasActiveGhost = true },
             };
-            Assert.Equal(3, TestCommandFarWatch.ResolveTargetIndex(c, true));
+            // Step 4: follow takes a ghost at any body, like hold.
+            Assert.Equal(2, TestCommandFarWatch.ResolveTargetIndex(c, true));
             Assert.Equal(2, TestCommandFarWatch.ResolveTargetIndex(c, false));
             Assert.Equal(-1, TestCommandFarWatch.ResolveTargetIndex(null, false));
             Assert.Equal(-1, TestCommandFarWatch.ResolveTargetIndex(c.GetRange(0, 2), false));
+        }
+
+        [Theory]
+        [InlineData("seam", false, null)]
+        [InlineData("map", true, null)]
+        [InlineData("Map", false, "via-invalid")]
+        public void Parse_Via(string via, bool viaMap, string reason)
+        {
+            Assert.Equal(reason, TestCommandFarWatch.TryParseArgs("start", null, "t", null, via, out TestCommandFarWatch.Args a));
+            if (reason == null)
+                Assert.Equal(viaMap, a.ViaMap);
+        }
+
+        [Fact]
+        public void Parse_ViaMap_NeedsFollow()
+        {
+            Assert.Equal("via-map-needs-follow", TestCommandFarWatch.TryParseArgs("start", null, "t", "hold", "map", out _));
+            Assert.Null(TestCommandFarWatch.TryParseArgs("start", null, "t", "follow", "map", out _));
+        }
+
+        [Fact]
+        public void MapEntryRefusal_OnlyThePlainEnabledWatchPasses()
+        {
+            Assert.Null(TestCommandFarWatch.MapEntryRefusal("Watch", true, ""));
+            Assert.Equal("map-entry-refused:Your ship must be landed", TestCommandFarWatch.MapEntryRefusal("Watch", false, "Your ship must be landed"));
+            Assert.Equal("map-entry-refused:Watch (Inactive)", TestCommandFarWatch.MapEntryRefusal("Watch (Inactive)", false, ""));
+            Assert.Equal("map-entry-refused:Stop Watching", TestCommandFarWatch.MapEntryRefusal("Stop Watching", true, null));
         }
 
         [Theory]

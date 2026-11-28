@@ -49,7 +49,7 @@ Not released yet.
 
 ### Added
 
-- **Watch a ghost far from your ship.** Watch follows a ghost on your ship's body past 300 km
+- **Watch a ghost far from your ship.** Watch follows a ghost at any body or distance, map too,
   while your ship is safe; [ or ] brings you back. (FAR-WATCH-CAMERA-DRONE)
 - **Dev: Utility Weight and PicoPort on the modded test installs.** Lane PP-11 checks their ghosts.
 

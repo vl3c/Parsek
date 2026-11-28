@@ -1,0 +1,127 @@
+schema = 1
+id = "FW-6-far-watch-mun-landing-terrain"
+# =====================================================================================
+# FAR WATCH STEP 4: A FOLLOW WATCH OF A MUN LANDING FROM A SHIP ON KERBIN. THE DRONE KEEPS
+# ITS TERRAIN FLOOR OVER THE MUN, AND THE STOP HANDS BACK ACROSS BODIES.
+#
+# AUTHORED 2026-11-28 (branch `far-watch-step4`, design `docs/dev/design-far-watch.md`
+# 6.3 step 3 / 17.4 row FW-6 / 19 item 21). NEVER FLOWN (tag `pending-flight`): every
+# token below is read from the code, none from a flight.
+#
+# HOST AND GEOMETRY: V23M's `mun-landing-recorded`, tree 0da22482a8a648c6835b7bcd6b0f200d
+# looped. The fixture's own active vessel is the landed Kerbal X on the Mun, AT the
+# recorded touchdown point, so watching the landing from it is a near watch. The lane
+# therefore puts a fresh ship on Kerbin first (CI-6's `GoToEditor facility=SPH craft=
+# "Kerbal X"` + `LaunchFromEditor`, sandbox): the new ship sits on the runway, landed and
+# still, so the ship-safety check allows a watch with no return point. MEASURED by V23M:
+# relaunch L1 1249901.18 and touchdown at relaunch + 23091.405 s; the recording's
+# segment-less descent tail starts about relaunch + 20932. The lane reads the relaunch
+# off its own StartLoopPlayback (`${slp.relaunchUt+N}`), so the few seconds the editor
+# trip adds cannot shift the epochs: start at relaunch + 22800 (about 291 s before
+# touchdown, low over the Mun), warp to relaunch + 23150 (about 59 s after it).
+#
+# WHAT IT PROVES:
+#   1. A follow watch of a ghost at another body, started through the seam at any body
+#      (12.2), is admitted for a landed ship: verdict, Following.
+#   2. The terrain floor at the ghost's body (6.3 step 3, `ApplyFloor` reads the Mun's
+#      own PQS): the drone is clamped above the Mun's terrain on the way down and over
+#      the landed ghost (`floorClamps=` nonzero on the tick summary), and stock never
+#      kills it (zero `crashed through terrain`).
+#   3. The stop hands back across bodies: the drone is placed beside the ship on Kerbin
+#      (`drone body Mun -> Kerbin`), the watch ends Idle and the ship is active again.
+#   4. No drone `onVesselSOIChanged` (stock's dominant-body check is refused for the drone).
+#
+# NOT COVERED (owed elsewhere): warp above 1x near the Mun surface (the ghost's warp
+# limit decides; at the floor sizing a 1000x tick over a Mun peak needs about 350 m, 8.4);
+# the floor's minimum height (the summary line carries the clamp count, not the minimum).
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 reuse: V23M's host and measured offsets, CI-6's editor pair; no new flight.
+#   2 no idle waits: one TimeJump and one WarpToUT, both keyed on the captured relaunch.
+#   3 minimal dwells: one status read after the warp.
+#   4/5 not applicable (no burn, no coast mission).
+#   6 fail fast: retry "none".
+#   7 tight windows: recordings count is V23M's window until the first flight.
+#   8 tier: operator until measured.
+#   9 flight_efficiency.py owed after the first green flight; about 350 s of game time
+#     under the ghost's limit near the Mun surface may run at 1x, which is the behaviour
+#     under test.
+# =====================================================================================
+tier = "operator"
+description = "Far watch step 4 on V23M's host mun-landing-recorded: a fresh Kerbal X on the Kerbin runway follows the looped Mun landing ghost from 291 s before touchdown to 59 s after it; the drone is floor-clamped over the Mun's terrain with zero crashed-through-terrain kills, and the stop hands the camera back across bodies to the ship on Kerbin. NEVER FLOWN (tag pending-flight)."
+instanceProfile = "stock-minimal"
+tags = ["FW-6", "far-watch", "loop-playback", "landing", "terrain", "watch-mode", "mun", "airless", "editor", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-landing-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # The ship moves to Kerbin: the fixture's own ship sits at the touchdown point.
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, label = "slp", expect = "OK", budget = 300 },
+  # About 291 s before the measured touchdown (relaunch + 23091.405), low over the Mun.
+  { cmd = "TimeJump", args = { ut = "${slp.relaunchUt+22800}" },             expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FarWatch", args = { op = "start", tree = "0da22482a8a648c6835b7bcd6b0f200d", mode = "follow" }, expect = "OK", budget = 120 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  # Through the touchdown to about 59 s after it, the ghost landed.
+  { cmd = "WarpToUT", args = { ut = "${slp.relaunchUt+23150}" },             expect = "OK", budget = 540 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  { cmd = "FarWatch", args = { op = "stop" },                                expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["mun", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required = [
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
+  "startloopplayback initiated:",
+  "\\[FarWatchSafety\\] verdict=Allowed reason=None ",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
+  "farwatch start complete ",
+  "\\[CameraDrone\\] drone body Kerbin -> Mun recordingBody=\\S+ match=\\S+ pid=[0-9]+",
+  "\\[FarWatch\\] follow body=Mun recordingBody=Mun match=True rec=#[0-9]+",
+  "\\[CameraDrone\\] ticks=[0-9]+ writes=[0-9]+ skips=[0-9]+ floorClamps=[1-9][0-9]* ",
+  "\\[CameraDrone\\] drone body Mun -> Kerbin recordingBody=none match=n/a pid=[0-9]+",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle ",
+  "farwatch stop complete ",
+]
+forbidden = [
+  "crashed through terrain",
+  "far-watch-active",
+  "farwatch rejected reason=",
+  "onVesselSOIChanged fired for the drone",
+  "follow watch lost its watch-mode target",
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

@@ -480,7 +480,7 @@ namespace Parsek
             if (parentUI.InFlightMode)
             {
                 bool hasGhost = flight.HasActiveGhost(ri);
-                bool sameBody = flight.IsGhostOnSameBody(ri);
+                bool sameBody = flight.IsGhostOnWatchableBody(ri);
                 string farRefusal;
                 bool inRange = flight.IsGhostWatchableAtRange(ri, out farRefusal);
                 bool bodyReadingCurrent = flight.IsGhostBodyReadingCurrent(ri);

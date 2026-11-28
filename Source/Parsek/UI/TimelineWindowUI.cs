@@ -2070,7 +2070,7 @@ namespace Parsek
                     if (ShouldShowWatchButton(parentUI.InFlightMode && flight != null, rec))
                     {
                         bool hasGhost = recIndex >= 0 && flight.HasActiveGhost(recIndex);
-                        bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
+                        bool sameBody = recIndex >= 0 && flight.IsGhostOnWatchableBody(recIndex);
                         string farRefusal = null;
                         bool inRange = recIndex >= 0 && flight.IsGhostWatchableAtRange(recIndex, out farRefusal);
                         bool bodyReadingCurrent = recIndex < 0 || flight.IsGhostBodyReadingCurrent(recIndex);

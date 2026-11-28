@@ -12,7 +12,7 @@ namespace Parsek.Tests
                 recordingIndex: -1,
                 watchedRecordingIndex: -1,
                 hasActiveGhost: false,
-                sameBody: false,
+                bodyWatchable: false,
                 inRange: false,
                 toggleIfAlreadyWatching: true);
 
@@ -26,7 +26,7 @@ namespace Parsek.Tests
                 recordingIndex: 4,
                 watchedRecordingIndex: 4,
                 hasActiveGhost: true,
-                sameBody: true,
+                bodyWatchable: true,
                 inRange: true,
                 toggleIfAlreadyWatching: true);
 
@@ -40,7 +40,7 @@ namespace Parsek.Tests
                 recordingIndex: 4,
                 watchedRecordingIndex: 4,
                 hasActiveGhost: true,
-                sameBody: true,
+                bodyWatchable: true,
                 inRange: true,
                 toggleIfAlreadyWatching: false);
 
@@ -54,7 +54,7 @@ namespace Parsek.Tests
                 recordingIndex: 2,
                 watchedRecordingIndex: -1,
                 hasActiveGhost: false,
-                sameBody: true,
+                bodyWatchable: true,
                 inRange: true,
                 toggleIfAlreadyWatching: true);
 
@@ -68,7 +68,7 @@ namespace Parsek.Tests
                 recordingIndex: 2,
                 watchedRecordingIndex: -1,
                 hasActiveGhost: true,
-                sameBody: false,
+                bodyWatchable: false,
                 inRange: true,
                 toggleIfAlreadyWatching: true);
 
@@ -82,7 +82,7 @@ namespace Parsek.Tests
                 recordingIndex: 2,
                 watchedRecordingIndex: -1,
                 hasActiveGhost: true,
-                sameBody: true,
+                bodyWatchable: true,
                 inRange: false,
                 toggleIfAlreadyWatching: true);
 
@@ -96,7 +96,7 @@ namespace Parsek.Tests
                 recordingIndex: 2,
                 watchedRecordingIndex: 1,
                 hasActiveGhost: true,
-                sameBody: true,
+                bodyWatchable: true,
                 inRange: true,
                 toggleIfAlreadyWatching: true);
 
@@ -107,6 +107,41 @@ namespace Parsek.Tests
         public void IsWatchActionEnabled_OutOfRange_ReturnsFalse()
         {
             Assert.False(GhostMapWatchHelper.IsWatchActionEnabled(GhostMapWatchAction.OutOfRange));
+        }
+
+        // Step 4 (design-far-watch.md 12.2): "Watch (Too Far)" and "Watch (Other SOI)" are a
+        // plain Watch, greyed with the far watch's reason as the hover.
+        [Theory]
+        [InlineData((int)GhostMapWatchAction.OutOfRange, "Watch")]
+        [InlineData((int)GhostMapWatchAction.DifferentBody, "Watch")]
+        [InlineData((int)GhostMapWatchAction.Start, "Watch")]
+        [InlineData((int)GhostMapWatchAction.NoActiveGhost, "Watch (Inactive)")]
+        [InlineData((int)GhostMapWatchAction.Stop, "Stop Watching")]
+        [InlineData((int)GhostMapWatchAction.Refresh, "Refresh Watch")]
+        public void GetWatchButtonLabel_NoTooFarOrOtherSoiVariants(int action, string label)
+        {
+            Assert.Equal(label, GhostMapWatchHelper.GetWatchButtonLabel((GhostMapWatchAction)action));
+        }
+
+        [Fact]
+        public void GetWatchButtonReason_FarRefusalFirst_ThenTheBodyOrRangeLine()
+        {
+            Assert.Equal("ship unsafe", GhostMapWatchHelper.GetWatchButtonReason(GhostMapWatchAction.OutOfRange, "ship unsafe"));
+            Assert.Equal(GhostMapWatchHelper.TooFarReasonText, GhostMapWatchHelper.GetWatchButtonReason(GhostMapWatchAction.OutOfRange, null));
+            Assert.Equal(GhostMapWatchHelper.OtherBodyReasonText, GhostMapWatchHelper.GetWatchButtonReason(GhostMapWatchAction.DifferentBody, "x"));
+            Assert.Equal(string.Empty, GhostMapWatchHelper.GetWatchButtonReason(GhostMapWatchAction.Start, "x"));
+        }
+
+        // A ghost at another body with the far watch available reads bodyWatchable=true, and
+        // a far start the ship's safety allows reads inRange=true: a plain enabled Watch.
+        [Fact]
+        public void ResolveWatchAction_FarGhostAtAnotherBody_IsAStart()
+        {
+            GhostMapWatchAction result = GhostMapWatchHelper.ResolveWatchAction(
+                recordingIndex: 4, watchedRecordingIndex: -1, hasActiveGhost: true,
+                bodyWatchable: true, inRange: true, toggleIfAlreadyWatching: true);
+            Assert.Equal(GhostMapWatchAction.Start, result);
+            Assert.True(GhostMapWatchHelper.IsWatchActionEnabled(result));
         }
 
         [Fact]

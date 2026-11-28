@@ -93,8 +93,7 @@ namespace Parsek
                 else if (farWatch != null
                     && activeVesselDistance >= FarWatchDecisions.TakeoverDistanceMeters)
                 {
-                    farWatch.CheckTakeover(recIdx, rec.RecordingId, activeVesselDistance,
-                        watchMode.IsGhostOnSameBody(recIdx));
+                    farWatch.CheckTakeover(recIdx, rec.RecordingId, activeVesselDistance);
                     if (FarWatchDecisions.SuppressNearWatchCutoff(farWatch.State))
                         cachedCutoffTripped = false;
                 }

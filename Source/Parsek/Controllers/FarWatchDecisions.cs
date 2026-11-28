@@ -8,16 +8,16 @@ namespace Parsek
     {
         /// <summary>Today's near watch (ghost within 300 km of the ship, no far watch running).</summary>
         NearWatch,
-        /// <summary>A far ghost on the ship's body with the ship safe: the far watch starts directly.</summary>
+        /// <summary>A far ghost, or a ghost at another body, with the ship safe: the far watch starts directly.</summary>
         FarWatchDirect,
         /// <summary>A far watch runs and the ghost is near the ship: hand back first, then near watch.</summary>
         HandBackThenNearWatch,
         /// <summary>A far watch runs and the ghost is far from the ship: the drone follows it.</summary>
         FollowInFarWatch,
-        /// <summary>A far ghost on the ship's body with the ship unsafe: refused with the safety reason.</summary>
+        /// <summary>A far ghost (any body) with the ship unsafe: refused with the safety reason.</summary>
         RefusedUnsafe,
-        /// <summary>Another body (a later step) or no reading.</summary>
-        RefusedOtherBody,
+        /// <summary>A far watch runs and the asked-for ghost has no reading (no state, no body).</summary>
+        RefusedNoReading,
         /// <summary>A far watch runs but is not settled in Following (the drone is still moving).</summary>
         RefusedWatchSettling,
         /// <summary>A hold far watch runs (the drone stays beside the ship): no follow switch.</summary>
@@ -71,18 +71,41 @@ namespace Parsek
         internal const double NearWatchRangeMeters = 300_000.0;
 
         /// <summary>
-        /// Takeover from the near watch (8.4): the watched ghost on the ship's body has reached
-        /// 290 km from the ship while no far watch runs. The switch completes before 300 km.
+        /// Takeover from the near watch (8.4): the watched ghost has reached 290 km from the ship
+        /// while no far watch runs. The switch completes before 300 km. Since step 4 the body
+        /// does not matter: a near-watched ghost that crosses into another SOI before 290 km is
+        /// taken over as soon as its distance qualifies.
         /// </summary>
-        internal static bool ShouldTakeOver(bool watchingGhost, FarWatchState state, bool ghostOnShipBody, double distanceToShip)
+        internal static bool ShouldTakeOver(bool watchingGhost, FarWatchState state, double distanceToShip)
         {
-            return watchingGhost && state == FarWatchState.Idle && ghostOnShipBody
+            return watchingGhost && state == FarWatchState.Idle
                 && IsFinite(distanceToShip) && distanceToShip >= TakeoverDistanceMeters;
         }
 
         /// <summary>
+        /// A near watch is today's entry (8.4): the ghost on the ship's body within 300 km. A
+        /// ghost at another body is never near, whatever its distance (today's near watch keeps
+        /// its same-body guard), so it always needs the far watch.
+        /// </summary>
+        internal static bool IsWithinNearWatch(bool ghostOnShipBody, double distanceToShip)
+        {
+            return ghostOnShipBody && IsFinite(distanceToShip) && distanceToShip < NearWatchRangeMeters;
+        }
+
+        /// <summary>
+        /// Whether a follow start on an idle far watch goes straight to the drone (12.2): any
+        /// ghost not within today's near watch. The seam's <c>FarWatch op=start</c> and the
+        /// map Watch entry read this one predicate.
+        /// </summary>
+        internal static bool IsDirectFarStart(bool follow, bool ghostOnShipBody, bool withinVisualRange)
+        {
+            return follow && !(ghostOnShipBody && withinVisualRange);
+        }
+
+        /// <summary>
         /// Hand back for distance (8.4): the watched ghost is within 250 km of the ship on the
-        /// ship's body. A ghost at another body never triggers it.
+        /// ship's body. A ghost at another body never triggers it (its distance to the ship is
+        /// across an SOI boundary, and the near watch it would hand to needs the same body).
         /// </summary>
         internal static bool ShouldHandBackForDistance(FarWatchState state, bool ghostOnShipBody, double distanceToShip)
         {
@@ -114,21 +137,19 @@ namespace Parsek
             if (isWatchedIndex)
                 return FarWatchWatchRequest.NearWatch;
             bool finite = IsFinite(distanceToShip);
-            bool near = finite && distanceToShip < NearWatchRangeMeters;
+            bool near = IsWithinNearWatch(ghostOnShipBody, distanceToShip);
             if (state != FarWatchState.Idle)
             {
                 if (state != FarWatchState.Following)
                     return FarWatchWatchRequest.RefusedWatchSettling;
-                if (!ghostResolvable || !ghostOnShipBody)
-                    return FarWatchWatchRequest.RefusedOtherBody;
+                if (!ghostResolvable || !finite)
+                    return FarWatchWatchRequest.RefusedNoReading;
                 if (near)
                     return FarWatchWatchRequest.HandBackThenNearWatch;
                 return followingGhost ? FarWatchWatchRequest.FollowInFarWatch : FarWatchWatchRequest.RefusedHoldWatch;
             }
             if (!ghostResolvable || !finite || near)
                 return FarWatchWatchRequest.NearWatch;
-            if (!ghostOnShipBody)
-                return FarWatchWatchRequest.RefusedOtherBody;
             return startAllowed ? FarWatchWatchRequest.FarWatchDirect : FarWatchWatchRequest.RefusedUnsafe;
         }
 
@@ -173,7 +194,7 @@ namespace Parsek
         /// The hover reason of a far start refused for <paramref name="entryRefusal"/> (or, with
         /// none, for the verdict): a pending window reads busy, a Re-Fly its own line, a kerbal on
         /// EVA or a ghost / drone focus its own sentence, a running drone the far-watch block;
-        /// a ghost that cannot be followed (none, another body) leaves today's hover (null).
+        /// a ghost that cannot be followed (no reading) leaves today's hover (null).
         /// </summary>
         internal static string StartRefusalHover(string entryRefusal, FarWatchRefusal verdictReason, string stockText)
         {
@@ -189,8 +210,7 @@ namespace Parsek
                 case "not-flight":
                 case "no-active-vessel":
                 case "active-is-ghost-or-drone": return NoShipHoverText;
-                case "ghost-not-resolvable":
-                case "ghost-other-body": return null;
+                case "ghost-not-resolvable": return null;
                 default: return FarWatchShipSafety.SafetyHoverText;
             }
         }
@@ -293,6 +313,40 @@ namespace Parsek
             if (alarmsChanged) return "alarm";
             if (gameSecondsSinceLast >= 600.0) return "drift";
             return null;
+        }
+
+        /// <summary>
+        /// The drone's inertial velocity carried across an SOI hop of the ghost (6.3 step 2), the
+        /// way stock carries a vessel's at an SOI change (<c>Orbit.cs:533</c>:
+        /// <c>vel + from.GetFrameVelAtUT(UT) - to.GetFrameVelAtUT(UT)</c>, Zup). The frame
+        /// velocities are Zup (<c>CelestialBody.GetFrameVelAtUT</c>); the result is in world axes
+        /// like <paramref name="worldObtVelFrom"/>.
+        /// </summary>
+        internal static Vector3d CarryObtVelocityAcrossBodies(Vector3d worldObtVelFrom, Vector3d fromFrameVelZup, Vector3d toFrameVelZup)
+        {
+            return worldObtVelFrom + (fromFrameVelZup - toFrameVelZup).xzy;
+        }
+
+        /// <summary>The gee window is restarted when the ghost's body changes (an unknown previous body never restarts it).</summary>
+        internal static bool ShouldRestartGeeWindow(string previousBody, string body)
+        {
+            return previousBody != null && !string.Equals(previousBody, body, StringComparison.Ordinal);
+        }
+
+        /// <summary>The once-per-change key of the follow body / recording body line.</summary>
+        /// <summary>
+        /// The watch's first follow tick only seeds the finite difference (no write): with no
+        /// previous sample its velocity would be the body's rotation alone. True until the watch
+        /// has taken one sample; a re-key keeps the carried velocity and is not re-seeded.
+        /// </summary>
+        internal static bool ShouldSeedFollowSample(bool sampledThisWatch)
+        {
+            return !sampledThisWatch;
+        }
+
+        internal static string RecordingBodyMatchKey(string body, string recordingBody)
+        {
+            return (body ?? "(none)") + "|" + (recordingBody ?? "none");
         }
 
         /// <summary>m:ss (or h:mm:ss) of game seconds, invariant.</summary>

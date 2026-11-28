@@ -89,6 +89,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The recording-index ghost map vessel, for the seam's map Watch entry
+        /// (<c>FarWatch op=start via=map</c>, design-far-watch.md 12.2). False when none is bound.
+        /// </summary>
+        internal static bool TryGetGhostMapVesselForRecording(int recordingIndex, out Vessel vessel)
+        {
+            if (vesselsByRecordingIndex.TryGetValue(recordingIndex, out vessel) && vessel != null)
+                return true;
+            vessel = null;
+            return false;
+        }
+
+        /// <summary>
         /// Emit the per-tick lifecycle summary line and reset the counters.
         /// Called from the two map-presence drivers
         /// (<see cref="UpdateTrackingStationGhostLifecycle"/> and

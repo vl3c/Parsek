@@ -33,7 +33,7 @@ members = [
 "Parsek.BackgroundRecorder::ComputeDistanceToFocusedVessel(Vessel)" = { count = 1, codes = ["CAMERA-OK"], audit = "B Recording/BackgroundRecorder.Sampling.cs:681" }
 "Parsek.CameraDrone::Destroy(Vessel,string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone teardown picks RemoveVessel for an active drone, Die otherwise" }
 "Parsek.CameraDrone::IsActiveCore()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone-is-active predicate the fences read" }
-"Parsek.CameraDrone::WriteState(Vessel,CelestialBody,Vector3d,Vector3d)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone state write shifts the floating origin only while the drone is active" }
+"Parsek.CameraDrone::WriteState(Vessel,CelestialBody,Vector3d,Vector3d,string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone state write shifts the floating origin only while the drone is active; step 4: a cross-body write clears the stale rotating frames and runs the reference-frame check only while the drone is active (6.3 step 2)" }
 "Parsek.FarWatchAwardScope::ReadDroneActiveCore()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the award belt asks whether the drone is the active vessel (records nodes, 10.3)" }
 "Parsek.FarWatchController::EndForTestRunnerReset(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: the test runner's immediate end reads whether the drone holds focus before it destroys it" }
 "Parsek.FarWatchController::IsActiveVesselCore(Vessel)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 3 review: after the hand-back (Idle, the ship active) the deferred switch is dropped when its target already holds focus (8.5)" }
@@ -274,7 +274,7 @@ members = [
 "Parsek.MapRenderProbe::EmitMapSceneSnapshot(int32,float64,string,string)" = { count = 2, codes = ["DRONE-DIFFERENT"], audit = "C MapRender/MapRenderProbe.cs:500, 501" }
 "Parsek.MapRenderProbe::LateUpdate()" = { count = 1, codes = ["DRONE-NA"], audit = "C MapRender/MapRenderProbe.cs:309, 311" }
 "Parsek.ParsekScenario::StripGhostMapVesselsFailClosed(FlightState,string,string,bool)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Controllers/ParsekScenario.Save.cs:33" }
-"Parsek.Patches.GhostOrbitDominantBodyPatch::ShouldSkipDominantBodyCheck(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitDominantBodyPatch.cs:50" }
+"Parsek.Patches.GhostOrbitDominantBodyPatch::ShouldSkipDominantBodyCheck(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitDominantBodyPatch.cs:70" }
 
 [sites.wrapper]
 "Parsek.PredictedCrashReconcilerHost::ReadLiveFacts(Parsek.Recording,System.Collections.Generic.Dictionary`2<string,Vessel>,float64)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "A PredictedCrashReconcilerHost.cs:363; the wrapper now answers FarWatchPlayerVessel.Resolve() (step 2 review)" }

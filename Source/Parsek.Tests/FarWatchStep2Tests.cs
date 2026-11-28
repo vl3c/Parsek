@@ -267,7 +267,6 @@ namespace Parsek.Tests
                 InFlightScene = true,
                 HasActiveVessel = true,
                 GhostResolvable = true,
-                GhostOnShipBody = true,
                 FollowGhost = true,
             };
         }
@@ -279,13 +278,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EntryRefusal_OtherBody_FollowRefused_HoldAllowed()
+        public void EntryRefusal_NoBodyTerm_FollowAndHoldAllowedAtAnyBody()
         {
+            // Step 4: the follow watch moves the drone to the ghost's body, so the entry has no
+            // body term (the old ghost-other-body refusal is gone).
             FarWatchEntryInputs i = Allowed();
-            i.GhostOnShipBody = false;
-            Assert.Equal("ghost-other-body", FarWatchTransitions.EvaluateEntryRefusal(i));
+            Assert.Null(FarWatchTransitions.EvaluateEntryRefusal(i));
             i.FollowGhost = false;
             Assert.Null(FarWatchTransitions.EvaluateEntryRefusal(i));
+            i.GhostResolvable = false;
+            Assert.Equal("ghost-not-resolvable", FarWatchTransitions.EvaluateEntryRefusal(i));
         }
 
         [Fact]

@@ -371,11 +371,17 @@ namespace Parsek
         /// trajectory cannot resolve at all (<see cref="WatchBodyEvidence.CacheFallback"/>),
         /// which pins the pre-change behaviour for genuinely unresolvable recordings.</para>
         ///
-        /// <para>The term still REFUSES a genuinely cross-body ghost - that is the E5 design
-        /// intent (FloatingOrigin is centred on the active vessel, so a ghost at another body
-        /// has no usable camera frame). Distance is a SEPARATE term
+        /// <para>The term still REFUSES a genuinely cross-body ghost for TODAY'S NEAR WATCH -
+        /// that is the E5 design intent (FloatingOrigin is centred on the active vessel, so a
+        /// ghost at another body has no usable camera frame). Distance is a SEPARATE term
         /// (<see cref="WatchEnterCutoffMeters"/> = 300 km), where the float-grid step is
-        /// centimetres, so a same-body in-range ghost is exactly what E5 meant to accept.</para>
+        /// centimetres, so a same-body in-range ghost is exactly what E5 meant to accept.
+        /// Since far watch step 4 a cross-body ghost is still watchable, through the camera
+        /// drone, which moves the active vessel (and so the floating origin) to the ghost's
+        /// body (design-far-watch.md 6.3 step 2): the Watch affordances read
+        /// <see cref="ResolveWatchBodyAffordance"/> over this decision's
+        /// <see cref="WatchBodyDecision.GhostBodyName"/>, and the far watch compares the ghost
+        /// against the SHIP's body through <see cref="ResolveWatchBodyDecisionAgainst"/>.</para>
         /// </summary>
         internal static WatchBodyDecision ResolveWatchSameBodyDecision(
             bool hasState,
@@ -405,6 +411,44 @@ namespace Parsek
             }
 
             return BuildWatchBodyDecision(cachedBodyName, activeBodyName, WatchBodyEvidence.CacheFallback);
+        }
+
+        /// <summary>
+        /// The same evidence compared against another body (the far watch's ship body while the
+        /// drone holds focus, design-far-watch.md 8.4). No state stays not-on-body.
+        /// </summary>
+        internal static WatchBodyDecision ResolveWatchBodyDecisionAgainst(WatchBodyDecision resolved, string bodyName)
+        {
+            if (resolved.Evidence == WatchBodyEvidence.NoState)
+                return resolved;
+            return BuildWatchBodyDecision(resolved.GhostBodyName, bodyName, resolved.Evidence);
+        }
+
+        /// <summary>What a Watch affordance offers for a ghost's body (design-far-watch.md 12.2).</summary>
+        internal enum WatchBodyAffordance
+        {
+            /// <summary>No state or no body reading: today's refusal stands.</summary>
+            Unknown,
+            /// <summary>On the observer's body: today's near watch, or a far watch past 300 km.</summary>
+            SameBody,
+            /// <summary>At another body: only the far watch can take it (step 4).</summary>
+            OtherBodyFarWatch,
+            /// <summary>At another body with no far watch here (not FLIGHT): refused as today.</summary>
+            OtherBodyRefused,
+        }
+
+        /// <summary>
+        /// The body half of a Watch affordance (design-far-watch.md 12.2, step 4): a ghost at
+        /// another body is offered when a far watch can run in this scene; its range half (the
+        /// ship's safety, 8.2) is the far start's own decision.
+        /// </summary>
+        internal static WatchBodyAffordance ResolveWatchBodyAffordance(WatchBodyDecision decision, bool farWatchAvailable)
+        {
+            if (decision.Evidence == WatchBodyEvidence.NoState || string.IsNullOrEmpty(decision.GhostBodyName))
+                return WatchBodyAffordance.Unknown;
+            if (decision.OnSameBody)
+                return WatchBodyAffordance.SameBody;
+            return farWatchAvailable ? WatchBodyAffordance.OtherBodyFarWatch : WatchBodyAffordance.OtherBodyRefused;
         }
 
         private static WatchBodyDecision BuildWatchBodyDecision(
@@ -519,14 +563,22 @@ namespace Parsek
         ///
         /// <para>Overlap loops never reset (each cycle ghost carries its own phase), which is
         /// the pre-existing <paramref name="usesOverlapLooping"/> term - unchanged.</para>
+        ///
+        /// <para><paramref name="farWatchEntry"/>: the far watch's entry never resets (the
+        /// drone already sits at the current phase, design-far-watch.md 12.2).</para>
         /// </summary>
         internal static bool ShouldResetLoopPhaseForWatch(
             bool zoneBeyond,
             bool shouldLoopPlayback,
             bool usesOverlapLooping,
             bool currentPhaseOnSameBody,
-            bool currentPhaseWithinEntryRange)
+            bool currentPhaseWithinEntryRange,
+            bool farWatchEntry = false)
         {
+            // The far watch's entry (design-far-watch.md 12.2) runs after the drone was written
+            // at the ghost's current phase, at any body: that phase is the one to watch.
+            if (farWatchEntry)
+                return false;
             if (!zoneBeyond || !shouldLoopPlayback || usesOverlapLooping)
                 return false;
             if (currentPhaseOnSameBody && currentPhaseWithinEntryRange)

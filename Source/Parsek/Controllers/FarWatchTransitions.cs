@@ -51,7 +51,6 @@ namespace Parsek
         ShipNeverLoaded,
         InvalidState,
         RecorderNotBackgrounded,
-        GhostLeftBody,
         GhostGone,
         CameraLost,
         ControllerDestroyed,
@@ -116,7 +115,6 @@ namespace Parsek
         internal bool RestoringActiveTree;
         internal bool ReFlyActive;
         internal bool GhostResolvable;
-        internal bool GhostOnShipBody;
         /// <summary>Follow mode moves the drone with the ghost; hold mode keeps it beside the ship.</summary>
         internal bool FollowGhost;
     }
@@ -272,8 +270,7 @@ namespace Parsek
             if (i.RestoringActiveTree) return "restoring-active-tree";
             if (i.ReFlyActive) return "refly-active";
             if (!i.GhostResolvable) return "ghost-not-resolvable";
-            // Step 2 moves the drone on the ship's body only; a hold watch never moves it.
-            if (i.FollowGhost && !i.GhostOnShipBody) return "ghost-other-body";
+            // Step 4: a follow watch moves the drone to the ghost at any body (6.3 step 2).
             return null;
         }
 

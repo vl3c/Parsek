@@ -28,12 +28,13 @@ namespace Parsek.TestCommands
             string indexArg = ArgOrNull(cmd, TestCommandFarWatch.IndexKey);
             string treeArg = ArgOrNull(cmd, TestCommandFarWatch.TreeKey);
             string modeArg = ArgOrNull(cmd, TestCommandFarWatch.ModeKey);
-            string argReason = TestCommandFarWatch.TryParseArgs(opArg, indexArg, treeArg, modeArg,
+            string viaArg = ArgOrNull(cmd, TestCommandFarWatch.ViaKey);
+            string argReason = TestCommandFarWatch.TryParseArgs(opArg, indexArg, treeArg, modeArg, viaArg,
                 out TestCommandFarWatch.Args args);
             if (argReason != null)
             {
                 RejectFarWatch(argReason, $"op={opArg ?? string.Empty} index={indexArg ?? string.Empty} "
-                    + $"tree={treeArg ?? string.Empty} mode={modeArg ?? string.Empty}");
+                    + $"tree={treeArg ?? string.Empty} mode={modeArg ?? string.Empty} via={viaArg ?? string.Empty}");
                 return;
             }
 
@@ -99,7 +100,6 @@ namespace Parsek.TestCommands
                         Index = i,
                         InScope = inScope,
                         HasActiveGhost = inScope && flight.HasActiveGhost(i),
-                        OnShipBody = inScope && flight.IsGhostOnSameBody(i),
                     });
                 }
                 index = TestCommandFarWatch.ResolveTargetIndex(candidates, args.Follow);
@@ -118,10 +118,17 @@ namespace Parsek.TestCommands
             }
 
             ParsekLog.Info(Tag, $"farwatch start index={index.ToString(CultureInfo.InvariantCulture)} "
-                + $"mode={(args.Follow ? "follow" : "hold")} tree={treeId ?? string.Empty}");
-            // A follow start on a ghost past the near-watch range starts the far watch directly
-            // (design-far-watch.md 12.2): watch mode is entered once the drone has focus.
-            bool direct = args.Follow && !flight.IsGhostWithinVisualRange(index);
+                + $"mode={(args.Follow ? "follow" : "hold")} via={(args.ViaMap ? "map" : "seam")} tree={treeId ?? string.Empty}");
+            if (args.ViaMap)
+            {
+                StartFarWatchViaMap(flight, fw, index);
+                return;
+            }
+            // A follow start on a ghost past the near-watch range or at another body starts the
+            // far watch directly (design-far-watch.md 12.2): watch mode is entered once the drone
+            // has focus.
+            bool direct = FarWatchDecisions.IsDirectFarStart(args.Follow, flight.IsGhostOnShipBody(index),
+                flight.IsGhostWithinVisualRange(index));
             string refusal;
             if (!fw.TryStart(index, args.Follow, direct, out refusal))
             {
@@ -130,6 +137,47 @@ namespace Parsek.TestCommands
             }
             farWatchPendingOp = FarWatchOp.Start;
             farWatchPendingFollow = args.Follow;
+            farWatchPendingIndex = index;
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        /// <summary>
+        /// <c>via=map</c>: the map ghost menu's Watch entry, pressed the way the player presses it
+        /// (design-far-watch.md 12.2, step 4). The entry must read a plain enabled "Watch" and
+        /// the press must start the far watch; the start then completes as any other.
+        /// </summary>
+        private void StartFarWatchViaMap(ParsekFlight flight, FarWatchController fw, int index)
+        {
+            Vessel mapVessel;
+            if (!GhostMapPresence.TryGetGhostMapVesselForRecording(index, out mapVessel) || mapVessel == null)
+            {
+                RejectFarWatch(TestCommandFarWatch.MapVesselMissingReason, "index=" + index.ToString(CultureInfo.InvariantCulture));
+                return;
+            }
+            string farRefusal;
+            Parsek.Patches.GhostMapWatchAction action = Parsek.Patches.GhostMapWatchHelper.ResolveLiveWatchAction(
+                flight, index, toggleIfAlreadyWatching: true, out farRefusal);
+            string label = Parsek.Patches.GhostMapWatchHelper.GetWatchButtonLabel(action);
+            bool enabled = Parsek.Patches.GhostMapWatchHelper.IsWatchActionEnabled(action);
+            string reason = Parsek.Patches.GhostMapWatchHelper.GetWatchButtonReason(action, farRefusal);
+            ParsekLog.Info(Tag, $"farwatch map entry index={index.ToString(CultureInfo.InvariantCulture)} "
+                + $"action={action} label={label} enabled={enabled} reason={(string.IsNullOrEmpty(reason) ? "(none)" : reason)}");
+            string refusal = TestCommandFarWatch.MapEntryRefusal(label, enabled, reason);
+            if (refusal != null)
+            {
+                RejectFarWatch(refusal, "index=" + index.ToString(CultureInfo.InvariantCulture));
+                return;
+            }
+            Parsek.Patches.GhostMapWatchHelper.HandleWatchRequest(mapVessel, index, "seam map entry",
+                toggleIfAlreadyWatching: true);
+            if (!fw.IsRunning)
+            {
+                RejectFarWatch(TestCommandFarWatch.MapEntryNotFarReason,
+                    $"index={index.ToString(CultureInfo.InvariantCulture)} watched={flight.WatchedRecordingIndex.ToString(CultureInfo.InvariantCulture)}");
+                return;
+            }
+            farWatchPendingOp = FarWatchOp.Start;
+            farWatchPendingFollow = true;
             farWatchPendingIndex = index;
             SetExecResult(PendingVerdict, null, null);
         }
