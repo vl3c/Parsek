@@ -489,6 +489,14 @@ name = "Parsek.TestCommands.EvaMoveInputPatch"
 default = "scoped"
 reason = "the EvaMove seam verb's input drive (automation only, Prepare-gated): armed by one EvaMove step's applier, disarmed by its completion, its reset and the addon's two-phase clear"
 
+[[type]]
+name = "Parsek.TestCommands.PartParityBurstDriver"
+reason = "the part parity sweep's live burst driver (automation only)"
+[type.fields]
+currentTrial = "scoped: set around one burst trigger frame by TriggerAll and cleared in its finally (the onPartDie / onPartJointBreak handlers it subscribes are removed there too)"
+queuedField = "process: a reflection cache of FXMonger's private queue field, resolved once"
+protoFields = "process: a reflection cache of the queued-explosion type's position and power fields, filled once per type"
+
 # --- Statics the test assembly writes ------------------------------------------------
 # Each was named by the testWrittenUntagged finding and tagged after reading its
 # write sites (the writes listed in the reason are every production write).
@@ -572,6 +580,14 @@ reason = "the scene-exit intercept's one-shot permit"
 [type.fields]
 s_AllowNextLoadScene = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
 s_AllowNextLoadSceneDestination = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
+
+[[type]]
+name = "Parsek.GhostAeroFxRenderer"
+reason = "the ghost reentry sheath drawn with stock's FX cameras (part parity P9 Y1)"
+[type.fields]
+instance = "scene: the flight scene's renderer object; Awake-time creation by the first sheath offer sets it and OnDestroy (scene unload) clears it"
+constantsRead = "process: whether the PhysicsGlobals aero FX constants were read; Physics.cfg is loaded once per game start"
+cachedConstants = "process: the PhysicsGlobals aero FX constants, read once; constants of the loaded game"
 
 [[type]]
 name = "Parsek.GhostMapPresence"

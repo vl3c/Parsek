@@ -461,5 +461,168 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Stock-read surface speed
+
+        [Fact]
+        public void TryRecordedSurfaceSpeed_AgreeingPair_InterpolatesTheRecordedSpeeds()
+        {
+            // A reentry bracket: 1120 -> 1070 m/s over 0.5 s, chord 1095 (its mean).
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, 0.2, out float speed));
+            Assert.Equal(1110.0f, speed, 0.01f);
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, 0.0, out speed));
+            Assert.Equal(1120.0f, speed, 0.01f);
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, 1.0, out speed));
+            Assert.Equal(1070.0f, speed, 0.01f);
+        }
+
+        [Fact]
+        public void TryRecordedSurfaceSpeed_ReadsBackAtMostOneBracket_AndNeverBelowZero()
+        {
+            // Below 0 reads the bracket's own trend back (stock's smoothing lag at a bracket start).
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, -0.18, out float speed));
+            Assert.Equal(1129.0f, speed, 0.01f);
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, -5.0, out speed));
+            Assert.Equal(1170.0f, speed, 0.01f);
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, 1.5, out speed));
+            Assert.Equal(1070.0f, speed, 0.01f);
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(2.0, 1.0, 3.0, -1.0, out speed));
+            Assert.Equal(0f, speed);
+        }
+
+        [Fact]
+        public void StockSpeedFraction_ReadsFourAndAHalfPhysicsFramesBack()
+        {
+            // 10 frames at 0.02 s: the mean is 0.09 s back; in a 0.5 s bracket that is 0.18.
+            Assert.Equal(0.32, GhostSurfaceVelocity.StockSpeedFraction(0.5, 0.5, 0.02), 6);
+            Assert.Equal(-0.18, GhostSurfaceVelocity.StockSpeedFraction(0.0, 0.5, 0.02), 6);
+            // A bracket shorter than the lag reads back at most one bracket.
+            Assert.Equal(-1.0, GhostSurfaceVelocity.StockSpeedFraction(0.0, 0.02, 0.02), 6);
+            Assert.Equal(0.7, GhostSurfaceVelocity.StockSpeedFraction(0.7, 0.5, 0.0), 6);
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 0.5, 0.02)]
+        [InlineData(0.5, double.NaN, 0.02)]
+        [InlineData(0.5, 0.5, double.NaN)]
+        [InlineData(0.5, 0.0, 0.02)]
+        [InlineData(0.5, 0.5, -0.02)]
+        public void StockSpeedFraction_UnusableInputs_ReturnTheFraction(double t, double bracket, double dt)
+        {
+            double got = GhostSurfaceVelocity.StockSpeedFraction(t, bracket, dt);
+            if (double.IsNaN(t)) Assert.True(double.IsNaN(got));
+            else Assert.Equal(t, got);
+        }
+
+        [Fact]
+        public void StockSpeed_AtTheRigsMach375Mark_MatchesStocksReading()
+        {
+            // Flight 3 (2026-11-28_0203): about 100 m/s per s of deceleration at m375. A 0.5 s
+            // bracket 1120 -> 1070 m/s whose start the ghost plays: the chord reads 1095, stock's
+            // ten-frame mean about 1129 (the speed 0.09 s earlier).
+            double fraction = GhostSurfaceVelocity.StockSpeedFraction(0.0, 0.5, 0.02);
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(1095.0, 1120.0, 1070.0, fraction, out float speed));
+            Assert.Equal(1129.0f, speed, 0.01f);
+        }
+
+        [Theory]
+        // An inertial pair over an eastbound track: the body's rotation (Kerbin ~175 m/s) sits in
+        // the recorded magnitudes and not in the body-fixed chord.
+        [InlineData(1095.0, 1295.0, 1245.0)]
+        [InlineData(1095.0, 920.0, 870.0)]
+        // Just past the 1.5 % band.
+        [InlineData(1000.0, 1016.0, 1016.0)]
+        // Just past the 2 m/s floor at low speed.
+        [InlineData(10.0, 12.5, 12.5)]
+        public void TryRecordedSurfaceSpeed_DisagreeingPair_KeepsTheChord(double chord, double before, double after)
+        {
+            Assert.False(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(chord, before, after, 0.5, out float speed));
+            Assert.Equal(0f, speed);
+        }
+
+        [Theory]
+        [InlineData(1000.0, 1014.0, 1014.0)]
+        [InlineData(10.0, 11.9, 11.9)]
+        [InlineData(0.0, 0.0, 0.0)]
+        public void TryRecordedSurfaceSpeed_InsideTheBand_IsAccepted(double chord, double before, double after)
+        {
+            Assert.True(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(chord, before, after, 0.5, out _));
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 1.0, 1.0, 0.5)]
+        [InlineData(1.0, double.NaN, 1.0, 0.5)]
+        [InlineData(1.0, 1.0, double.PositiveInfinity, 0.5)]
+        [InlineData(1.0, 1.0, 1.0, double.NaN)]
+        [InlineData(-1.0, 1.0, 1.0, 0.5)]
+        [InlineData(1.0, -1.0, 1.0, 0.5)]
+        public void TryRecordedSurfaceSpeed_UnusableInputs_AreRefused(double chord, double before, double after, double t)
+        {
+            Assert.False(GhostSurfaceVelocity.TryRecordedSurfaceSpeed(chord, before, after, t, out _));
+        }
+
+        [Fact]
+        public void SpeedForAeroFx_UsesTheStockSpeedOnlyForItsOwnChord()
+        {
+            var chord = new Vector3(0f, -600f, 900f);
+            float got = GhostSurfaceVelocity.SpeedForAeroFx(chord, GhostSurfaceVelocitySource.Positions,
+                1110f, chord, out bool used);
+            Assert.True(used);
+            Assert.Equal(1110f, got);
+
+            // Another writer replaced the surface velocity: the stock speed no longer applies.
+            var other = new Vector3(0f, -500f, 800f);
+            got = GhostSurfaceVelocity.SpeedForAeroFx(other, GhostSurfaceVelocitySource.Positions,
+                1110f, chord, out used);
+            Assert.False(used);
+            Assert.Equal(other.magnitude, got, 0.01f);
+        }
+
+        [Fact]
+        public void SpeedForAeroFx_NoStockSpeed_OrOtherSource_ReadsTheChord()
+        {
+            var chord = new Vector3(0f, -600f, 900f);
+            Assert.Equal(chord.magnitude, GhostSurfaceVelocity.SpeedForAeroFx(chord,
+                GhostSurfaceVelocitySource.Positions, float.NaN, chord, out bool used), 0.01f);
+            Assert.False(used);
+            Assert.Equal(chord.magnitude, GhostSurfaceVelocity.SpeedForAeroFx(chord,
+                GhostSurfaceVelocitySource.Orbit, 1110f, chord, out used), 0.01f);
+            Assert.False(used);
+            Assert.Equal(0f, GhostSurfaceVelocity.SpeedForAeroFx(chord,
+                GhostSurfaceVelocitySource.None, 1110f, chord, out used));
+            Assert.False(used);
+        }
+
+        [Fact]
+        public void InterpolationResult_SurfaceVelocityChange_DropsTheStockSpeed()
+        {
+            var r = new InterpolationResult(Vector3.zero, "Kerbin", 20000.0);
+            Assert.True(float.IsNaN(r.stockSurfaceSpeed));
+            r = r.WithSurfaceVelocity(new Vector3(1f, 0f, 0f), GhostSurfaceVelocitySource.Positions)
+                .WithStockSurfaceSpeed(5f);
+            Assert.Equal(5f, r.stockSurfaceSpeed);
+            r = r.WithSurfaceVelocity(new Vector3(2f, 0f, 0f), GhostSurfaceVelocitySource.Positions);
+            Assert.True(float.IsNaN(r.stockSurfaceSpeed));
+            Assert.True(float.IsNaN(InterpolationResult.Zero.stockSurfaceSpeed));
+        }
+
+        [Fact]
+        public void PlaybackState_SetInterpolated_CarriesTheStockSpeedWithItsChord()
+        {
+            var state = new GhostPlaybackState();
+            Assert.True(float.IsNaN(state.lastInterpolatedStockSurfaceSpeed));
+            var chord = new Vector3(0f, -600f, 900f);
+            state.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 20000.0)
+                .WithSurfaceVelocity(chord, GhostSurfaceVelocitySource.Positions)
+                .WithStockSurfaceSpeed(1110f));
+            Assert.Equal(1110f, state.lastInterpolatedStockSurfaceSpeed);
+            Assert.Equal(chord, state.lastInterpolatedStockSpeedChord);
+            state.ClearInterpolatedVelocities();
+            Assert.True(float.IsNaN(state.lastInterpolatedStockSurfaceSpeed));
+            Assert.Equal(Vector3.zero, state.lastInterpolatedStockSpeedChord);
+        }
+
+        #endregion
+
     }
 }

@@ -563,13 +563,13 @@ namespace Parsek.Tests
             Drive(engine, info, 0.6f);
             Assert.Equal(ReentryIsolation.None, info.isolationArmed);
             Assert.True(info.fireHiddenForIsolation);
-            Assert.Contains(logLines, l => l.Contains("Reentry fire renderer hidden for isolation on ghost #7"));
+            Assert.Contains(logLines, l => l.Contains("Reentry sheath hidden for isolation on ghost #7"));
             Drive(engine, info, 0.6f);
             Assert.False(info.fireHiddenForIsolation);
-            Assert.Contains(logLines, l => l.Contains("Reentry fire renderer restored for isolation on ghost #7"));
-            int writes = logLines.Count(l => l.Contains("Reentry fire renderer"));
+            Assert.Contains(logLines, l => l.Contains("Reentry sheath restored for isolation on ghost #7"));
+            int writes = logLines.Count(l => l.Contains("Reentry sheath"));
             Drive(engine, info, 0.6f);
-            Assert.Equal(writes, logLines.Count(l => l.Contains("Reentry fire renderer")));
+            Assert.Equal(writes, logLines.Count(l => l.Contains("Reentry sheath")));
         }
 
         [Fact]
@@ -581,7 +581,7 @@ namespace Parsek.Tests
             info.isolationArmed = ReentryIsolation.FireShellAndGlow;
             Drive(engine, info, 0.6f);
             Assert.True(info.fireHiddenForIsolation);
-            Assert.Single(logLines.Where(l => l.Contains("Reentry fire renderer hidden")));
+            Assert.Single(logLines.Where(l => l.Contains("Reentry sheath hidden")));
             Drive(engine, info, 0.6f);
             Assert.False(info.fireHiddenForIsolation);
         }
@@ -591,14 +591,27 @@ namespace Parsek.Tests
         {
             string body = Body(Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs"), "private void DriveReentryLayers(");
             Assert.Contains("ReentryIsolation isolation = ConsumeReentryIsolation(info, recIdx);", body);
-            Assert.Contains("float glowIntensity = ReentryIsolationGlowIntensity(intensity, isolation);", body);
-            Assert.Contains("if (glowIntensity <= GhostVisualBuilder.ReentryLayerAThreshold)", body);
-            Assert.Contains("Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, glowIntensity)", body);
-            Assert.Contains("if (info.fireParticles != null && !isolateFire)", body);
-            Assert.Contains("&& !isolateFire && intensity > GhostVisualBuilder.ReentryFireThreshold)", body);
-            // The char is the body, not an effect: it keeps the drive's intensity.
-            Assert.Contains("GhostPlaybackLogic.ApplyColorChangerCharState(state, intensity);", body);
-            Assert.Equal(2, Regex.Matches(body, @"\bglowIntensity\b").Count - 1);
+            Assert.Contains("float heat = GhostAeroFx.ThermalShare(intensity, info.aeroState);", body);
+            Assert.Contains("float glowIntensity = ReentryIsolationGlowIntensity(heat, isolation);", body);
+            // Layer A's material writes sit in a NoInlining helper, so this body holds no Unity
+            // internalcall a Release JIT could inline (the Windows host throws SecurityException).
+            Assert.Contains("if (info.glowMaterials != null && info.glowMaterials.Count > 0)\n                ApplyReentryGlowLayer(info, glowIntensity);",
+                body.Replace("\r\n", "\n"));
+            string glow = Body(Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs"),
+                "private static void ApplyReentryGlowLayer(");
+            Assert.Contains("if (glowIntensity <= GhostVisualBuilder.ReentryLayerAThreshold)", glow);
+            Assert.Contains("Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, glowIntensity)", glow);
+            Assert.Contains("[MethodImpl(MethodImplOptions.NoInlining)]\n        private static void ApplyReentryGlowLayer(",
+                Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs").Replace("\r\n", "\n"));
+            Assert.DoesNotContain(".SetColor(", body);
+            Assert.DoesNotContain("Graphics.", body);
+            Assert.DoesNotContain("ParticleSystem", body);
+            // The sheath offer carries the isolation, so the renderer logs it as Isolated.
+            Assert.Contains("GhostAeroFxRenderer.OfferSheath(info, state?.ghost, intensity, info.aeroState,", body);
+            Assert.Contains("surfaceVel, recIdx, isolateFire);", body);
+            // The char is the body, not an effect: it keeps the heat share, not the glow isolation.
+            Assert.Contains("GhostPlaybackLogic.ApplyColorChangerCharState(state, heat);", body);
+            Assert.Equal(1, Regex.Matches(body, @"\bglowIntensity\b").Count - 1);
         }
 
         #endregion

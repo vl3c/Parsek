@@ -5448,13 +5448,13 @@ PARTPARITY_FX_ALL_TOKEN = "all"
 # P9 (design-part-ghost-parity.md Appendix G; PartParityFxRules.BurstArgWords / DustArgWords):
 # the fx= csv also names burst words (with exactly contexts=air) or the dust word (with
 # exactly contexts=ground, a context only a dust run names), one kind per run; fx=all stays
-# the P8 words. Until the live burst and dust driver lands (design G.7 piece X4,
-# TestCommandPartParitySweep.BurstDustRunsBuilt) a well-formed one is REJECTED
-# burst-dust-runs-not-built.
+# the P8 words. The live burst and dust driver is built (design G.7 piece X4,
+# TestCommandPartParitySweep.BurstDustRunsBuilt); a build without it would REJECT a
+# well-formed one burst-dust-runs-not-built.
 PARTPARITY_FX_BURST_VALUES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom", "decouple")
 PARTPARITY_FX_DUST_VALUES: Tuple[str, ...] = ("dust",)
 PARTPARITY_GROUND_CONTEXT = "ground"
-PARTPARITY_BURST_DUST_RUNS_BUILT = False
+PARTPARITY_BURST_DUST_RUNS_BUILT = True
 PARTPARITY_BURST_DUST_RUNS_NOT_BUILT_REASON = "burst-dust-runs-not-built"
 
 # motion= (Appendix H.1; TryParseMotion over PartParityMotionRules): `none` (the default),

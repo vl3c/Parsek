@@ -49,7 +49,7 @@ namespace Parsek
                 if (p == null) continue;
 
                 SeedFairings(p, sets, logTag);
-                SeedJettisons(p, sets, logTag);
+                SeedJettisons(p, v, sets, logTag);
                 SeedParachutes(p, sets, logTag);
                 if (!SeedDeployables(p, sets, logTag)) poselessDeployables++;
                 SeedLights(p, sets, seedColorChangerLights, logTag);
@@ -107,18 +107,26 @@ namespace Parsek
             catch { }
         }
 
-        private static void SeedJettisons(Part p, PartTrackingSets sets, string logTag)
+        private static void SeedJettisons(Part p, Vessel v, PartTrackingSets sets, string logTag)
         {
             for (int m = 0; m < p.Modules.Count; m++)
             {
                 var jettison = p.Modules[m] as ModuleJettison;
                 if (jettison == null) continue;
 
-                if (jettison.isJettisoned)
+                // The poll's rule (PartStatePoller.IsShroudGone): a shroud stock carried off
+                // with its bottom-node part keeps isJettisoned false, so a recording that
+                // starts after that decouple seeds it here, at its start, rather than emit it
+                // on its first poll (which a switch segment's no-op test reads as activity).
+                PartStatePoller.JettisonCarrierState carrier = jettison.isJettisoned
+                    ? PartStatePoller.JettisonCarrierState.NoReference
+                    : PartStatePoller.ReadJettisonCarrier(p, v, jettison, out _);
+                if (PartStatePoller.IsShroudGone(jettison.isJettisoned, carrier))
                 {
                     sets.jettisonedShrouds.Add(p.persistentId);
                     ParsekLog.Verbose(logTag,
-                        $"Seeded already-jettisoned shroud: '{p.partInfo?.name}' pid={p.persistentId}");
+                        $"Seeded already-jettisoned shroud: '{p.partInfo?.name}' pid={p.persistentId}" +
+                        (jettison.isJettisoned ? "" : $" (carried off: carrier={carrier})"));
                     break; // One jettison per part is enough for the set
                 }
             }
