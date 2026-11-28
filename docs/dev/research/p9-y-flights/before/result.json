@@ -1,0 +1,817 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-28_1119_P9-burst-dust_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 885,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-28_1334_P9-burst-dust/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "b1-pad-craft",
+          "scene": "FLIGHT",
+          "ut": "10.399999999999867"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "10.559999999999864",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnEva",
+          "ut": "10.559999999999864",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnFirstModificationAfterSwitch",
+          "ut": "10.599999999999863",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "10.619999999999862",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "0",
+          "complete": "0",
+          "controls": "pending",
+          "crashed": "0",
+          "done": "false",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "0",
+          "setupFaults": "0",
+          "ut": "10.659999999999862",
+          "wall": "0.0"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.28000000004144",
+          "wall": "218.9"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.50000000004155",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.54000000004157",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.58000000004159",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.64000000004162",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.68000000004164",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.72000000004167",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "47",
+          "complete": "47",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pb",
+          "next": "47",
+          "setupFaults": "47",
+          "ut": "225.7800000000417",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "0",
+          "complete": "0",
+          "controls": "pending",
+          "crashed": "0",
+          "done": "false",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pd",
+          "next": "0",
+          "setupFaults": "0",
+          "ut": "225.82000000004172",
+          "wall": "0.0"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "117",
+          "complete": "68",
+          "controls": "off",
+          "crashed": "0",
+          "done": "false",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pd",
+          "next": "68",
+          "setupFaults": "24",
+          "ut": "530.87999999980718",
+          "wall": "344.4"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "117",
+          "complete": "117",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pd",
+          "next": "117",
+          "setupFaults": "45",
+          "ut": "766.89999999959252",
+          "wall": "263.4"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "117",
+          "complete": "117",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pd",
+          "next": "117",
+          "setupFaults": "45",
+          "ut": "767.17999999959227",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "cases": "117",
+          "complete": "117",
+          "controls": "off",
+          "crashed": "0",
+          "done": "true",
+          "hostDamage": "none",
+          "hostDamaged": "false",
+          "label": "pd",
+          "next": "117",
+          "setupFaults": "45",
+          "ut": "767.21999999959223",
+          "wall": "0.2"
+        },
+        "cmd": "PartParitySweep",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "767.23999999959221"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-28T11:34:06Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-28_1119_P9-burst-dust",
+  "scenarioId": "P9-burst-dust",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 390066,
+    "files": 11,
+    "path": "2026-11-28_1119_P9-burst-dust_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=INVALID"
+  },
+  "startedUtc": "2026-11-28T11:19:21Z",
+  "subkind": "parity-controls",
+  "tier": "operator",
+  "verdict": "INVALID",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\b1-pad-craft\\analysis\\b1-pad-craft.analysis.json",
+      "reportTxt": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\b1-pad-craft\\analysis\\b1-pad-craft.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 0
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "aliveAtQuit": [],
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "partParity": {
+      "gating": false,
+      "harvest": {
+        "dir": "2026-11-28_1119_P9-burst-dust_partparity",
+        "labels": [
+          {
+            "bytes": 4441890,
+            "files": 96,
+            "label": "pb",
+            "result": "moved"
+          },
+          {
+            "bytes": 13118545,
+            "files": 227,
+            "label": "pd",
+            "result": "moved"
+          }
+        ]
+      },
+      "status": "INVALID",
+      "subkind": "parity-controls",
+      "sweeps": [
+        {
+          "counts": {
+            "cases": 47,
+            "error": 47,
+            "fail": 0,
+            "pass": 0,
+            "warn": 0
+          },
+          "gate": {
+            "baselineRuns": [],
+            "counts": {
+              "drift": 0,
+              "gone": 0,
+              "no-baseline": 1,
+              "setup-fault": 47,
+              "unaccepted-fail": 0
+            },
+            "ok": false,
+            "profile": "stock-minimal",
+            "reds": [
+              "no-baseline -: no baseline section for label pb in baseline-stock-minimal.json"
+            ]
+          },
+          "label": "pb",
+          "problems": [
+            "controls: ctl-burst-empty:absent, ctl-burst-real-vs-real:absent, ctl-burst-off:absent, ctl-burst-late:absent, ctl-burst-power:absent, ctl-burst-shift:absent, ctl-burst-hue:absent, progress.controls=off",
+            "state press: family=explode 3/3 case(s) action-failed|state-timeout: first advancedcanard--default--explode--air--cbf1cff7 burst-not-triggered: trigger: NullReferenceException: Object reference not set to an instance of an object; family=vessel-explode 4/4 case(s) action-failed|state-timeout: first fueltank--basic--vessel-explode-x1--air--c6746fce burst-not-triggered: trigger: NullReferenceException: Object reference not set to an instance of an object; family=burst-custom 8/8 case(s) action-failed|state-timeout: first advancedcanard--default--puff--air--e01c0413 burst-not-triggered: trigger: NullReferenceException: Object reference not set to an instance of an object; family=decouple 32/32 case(s) action-failed|state-timeout: first decoupler.0--basic--decouple--air--aabc5928 burst-not-triggered: trigger: NullReferenceException: Object reference not set to an instance of an object"
+          ],
+          "recomputeMismatches": 0,
+          "recomputed": 1,
+          "status": "INVALID",
+          "subkind": "parity-controls",
+          "worst": [
+            {
+              "caseId": "advancedcanard--default--explode--air--cbf1cff7",
+              "reasons": [
+                "setup:burst-not-triggered"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "advancedcanard--default--puff--air--e01c0413",
+              "reasons": [
+                "setup:burst-not-triggered"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "cargostorageunit--default--explode--air--69788d0d",
+              "reasons": [
+                "setup:burst-not-triggered"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "cargostorageunit--default--puff--air--b6aec2d9",
+              "reasons": [
+                "setup:burst-not-triggered"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "decoupler.0--basic--decouple--air--aabc5928",
+              "reasons": [
+                "setup:burst-not-triggered"
+              ],
+              "verdict": "error"
+            }
+          ]
+        },
+        {
+          "counts": {
+            "cases": 117,
+            "error": 45,
+            "fail": 72,
+            "pass": 0,
+            "warn": 0
+          },
+          "gate": {
+            "baselineRuns": [],
+            "counts": {
+              "drift": 0,
+              "gone": 0,
+              "no-baseline": 1,
+              "setup-fault": 45,
+              "unaccepted-fail": 0
+            },
+            "ok": false,
+            "profile": "stock-minimal",
+            "reds": [
+              "no-baseline -: no baseline section for label pd in baseline-stock-minimal.json"
+            ]
+          },
+          "label": "pd",
+          "problems": [
+            "controls: ctl-dust-real-vs-real:absent, ctl-dust-off:absent, ctl-dust-above-reach:absent, progress.controls=off",
+            "state press: family=unknown 9/9 case(s) action-failed|state-timeout: first jetengine--default--dust-high--ground--43000e16 state-timeout: engine not lit 5 s after the press"
+          ],
+          "recomputeMismatches": 0,
+          "recomputed": 3,
+          "status": "INVALID",
+          "subkind": "parity-controls",
+          "worst": [
+            {
+              "caseId": "clydesdale--default--dust-water--ground--dcb89b9e",
+              "reasons": [
+                "setup:dust-no-stock-hit",
+                "missing-dust:ring",
+                "missing-dust:smokeLarge"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "enginelargeskipper.v2--shroud--dust-water--ground--ebbb0c49",
+              "reasons": [
+                "setup:dust-no-stock-hit",
+                "missing-dust:ring",
+                "missing-dust:smokeLarge"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "jetengine--default--dust-high--ground--43000e16",
+              "reasons": [
+                "setup:state-timeout"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "jetengine--default--dust-low--ground--98eecdec",
+              "reasons": [
+                "setup:state-timeout"
+              ],
+              "verdict": "error"
+            },
+            {
+              "caseId": "jetengine--default--dust-water--ground--f51dcc5f",
+              "reasons": [
+                "setup:state-timeout"
+              ],
+              "verdict": "error"
+            }
+          ]
+        }
+      ]
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 0,
+            "recordings": 0,
+            "smallest": 0,
+            "total": 0,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 0,
+            "crewAboard": {
+              "Jebediah Kerman": 1
+            },
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {},
+            "recordings": 0,
+            "spaceObjectParts": {
+              "Ast. OTI-107": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {},
+            "treeNodes": 0,
+            "trees": 0,
+            "vesselNames": {
+              "#autoLOC_501224": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPointFiles": 0,
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0,
+          "unlistedRewindPointFiles": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 2,
+      "afterQuitFrameless": 2,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 2
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 2,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 885
+}
